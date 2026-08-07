@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>缠论K线分析 · OKX永续</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0b0e11; color: #c9d1d9;
+    font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #toolbar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid #1e2329; flex: none;
+  }
+  .group { display: flex; align-items: center; gap: 4px; }
+  .sep { width: 1px; height: 20px; background: #2a2e35; margin: 0 4px; }
+  button, select, input[type=text] {
+    background: #171b20; color: #c9d1d9; border: 1px solid #2a2e35;
+    border-radius: 4px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+    outline: none;
+  }
+  input[type=text] { width: 150px; cursor: text; }
+  button:hover { border-color: #4c8dff; }
+  button.active { background: #1d3a5f; border-color: #4c8dff; color: #7db8ff; }
+  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button.primary:disabled { opacity: .5; cursor: wait; }
+  label.chk { display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; color: #8b949e; }
+  label.chk input { accent-color: #1f6feb; }
+  #status { color: #8b949e; font-size: 12px; }
+  #status.err { color: #f6465d; }
+  #title { font-weight: 700; font-size: 15px; color: #e6edf3; }
+  #chart { flex: 1 1 auto; min-height: 0; }
+  #panel {
+    flex: none; height: 210px; border-top: 1px solid #1e2329;
+    display: flex; gap: 0; overflow-x: auto; overflow-y: hidden;
+  }
+  .col { flex: 1; min-width: 235px; padding: 10px 14px; overflow-y: auto; border-right: 1px solid #1e2329; }
+  .col:last-child { border-right: none; }
+  .col h3 { font-size: 13px; color: #e6edf3; margin-bottom: 8px; font-weight: 600; }
+  .kv { display: flex; justify-content: space-between; padding: 2px 0; }
+  .kv .k { color: #8b949e; }
+  .up { color: #2ebd85; } .down { color: #f6465d; } .flat { color: #8b949e; }
+  .card { background: #12161b; border: 1px solid #2a2e35; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+  .scorebar { height: 6px; background: #2a2e35; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .scorebar > div { height: 100%; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: #8b949e; font-weight: 400; padding: 2px 4px; border-bottom: 1px solid #2a2e35; }
+  td { padding: 3px 4px; border-bottom: 1px solid #171b20; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: #171b20; }
+  .tag { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 11px; color: #fff; }
+  .muted { color: #6e7681; font-size: 12px; }
+  #decision {
+    flex: none; display: flex; align-items: center; gap: 16px;
+    padding: 8px 14px; border-top: 1px solid #1e2329;
+    border-left: 4px solid #6e7681; background: #0f1318;
+    overflow-x: auto; white-space: nowrap;
+  }
+  #decision .act { font-size: 17px; font-weight: 700; flex: none; }
+  #decision .blk { flex: none; line-height: 1.35; }
+  #decision .blk .lbl { color: #8b949e; font-size: 11px; display: block; }
+  #decision .warn { color: #d29922; }
+  #modalMask {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    z-index: 50; align-items: center; justify-content: center;
+  }
+  #modal {
+    width: min(860px, 94vw); max-height: 88vh; overflow-y: auto;
+    background: #12161b; border: 1px solid #2a2e35; border-radius: 10px;
+    padding: 16px 18px;
+  }
+  #modal h2 { font-size: 15px; color: #e6edf3; margin-bottom: 10px; }
+  #modal .lvls { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  #modal .lvls .card { flex: 1; min-width: 220px; margin-bottom: 0; }
+  #modal .verdict { font-size: 16px; font-weight: 700; margin: 6px 0; }
+  #calc { border-top: 1px solid #2a2e35; margin-top: 12px; padding-top: 10px; }
+  #calc .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  #calc label { display: flex; flex-direction: column; font-size: 11px; color: #8b949e; gap: 2px; }
+  #calc input, #calc select { width: 110px; background: #171b20; color: #c9d1d9; border: 1px solid #2a2e35; border-radius: 4px; padding: 4px 6px; }
+  #calcOut .kv { max-width: 420px; }
+  .closeBtn { float: right; background: none; border: none; color: #8b949e; font-size: 16px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <span id="title">缠论分析</span>
+    <span class="sep"></span>
+    <div class="group" id="coins"></div>
+    <input type="text" id="instInput" placeholder="自定义如 PEPE-USDT-SWAP" />
+    <button id="goBtn">切换</button>
+    <span class="sep"></span>
+    <div class="group" id="periods"></div>
+    <span class="sep"></span>
+    <button id="refreshBtn" class="primary">⟳ 刷新</button>
+    <button id="scalpBtn">⚡超短线</button>
+    <label class="chk"><input type="checkbox" id="ckAuto" checked> 每分钟自动刷新</label>
+    <span id="status"></span>
+    <span style="flex:1"></span>
+    <div class="group">
+      <label class="chk"><input type="checkbox" id="ckFx"> 分型</label>
+      <label class="chk"><input type="checkbox" id="ckBi" checked> 笔</label>
+      <label class="chk"><input type="checkbox" id="ckZs" checked> 中枢</label>
+      <label class="chk"><input type="checkbox" id="ckBc" checked> 背驰</label>
+      <label class="chk"><input type="checkbox" id="ckBsp" checked> 买卖点</label>
+      <label class="chk"><input type="checkbox" id="ckPat" checked> 双顶底</label>
+      <label class="chk"><input type="checkbox" id="ckTri" checked> 收敛</label>
+      <label class="chk"><input type="checkbox" id="ckHp" checked> 护盘</label>
+    </div>
+  </div>
+  <div id="chart"></div>
+  <div id="decision"><span class="muted">交易决策加载中…</span></div>
+  <div id="panel">
+    <div class="col" id="colStruct"><h3>结构状态</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colVol"><h3>量价 · 主力</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colKR"><h3>KDJ · RSI</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colBc"><h3>背驰 · 形态</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colBsp"><h3>买卖点(点击跳转)</h3><div class="muted">加载中…</div></div>
+  </div>
+  <div id="modalMask"><div id="modal">
+    <button class="closeBtn" id="modalClose">✕</button>
+    <div id="calc" style="border-top:none;margin-top:0;padding-top:0">
+      <h2>仓位 / 杠杆计算器(手册工具1)</h2>
+      <div class="row">
+        <label>方向<select id="cSide"><option value="long">做多</option><option value="short">做空</option></select></label>
+        <label>账户权益 USDT<input type="number" id="cEq" value="1000"></label>
+        <label>单笔风险 %<input type="number" id="cRisk" value="1" step="0.1"></label>
+        <label>杠杆 ×<input type="number" id="cLev" value="5" step="1"></label>
+        <label>入场价<input type="number" id="cEntry" step="any"></label>
+        <label>止损价<input type="number" id="cStop" step="any"></label>
+      </div>
+      <div id="calcOut"></div>
+    </div>
+  </div></div>
+  <script src="/static/klinecharts.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
