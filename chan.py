@@ -11,7 +11,7 @@
 - 买卖点:1买=下跌末段背驰低点;2买=其后回调不破前低;3买=离开中枢回踩不跌回 ZG 之下。
 """
 
-from indicators import macd, macd_hist_list
+from indicators import kdj, macd, macd_hist_list, rsi
 import pandas as pd
 
 # 背驰评分器级别权重(手册 LVL_W;15m 手册未给,取 0.8 插值)
@@ -297,6 +297,119 @@ def _score_beichi(ratio, kind, bin_, bout, dif, candles, lvl_w):
     return score, detail
 
 
+# ---------------------------------------------------------------- 指标背离
+
+# 五票权重:MACD 柱最可靠,量能/KDJ 辅助(合计 78,再加超卖超买区 10、
+# 创新极值确认 12,满分 100)
+_DL_VOTE_W = {"MACD柱": 22, "DIF": 16, "RSI": 16, "KDJ": 12, "缩量": 12}
+
+
+def detect_beili(bis, bcs, candles, bar):
+    """指标背离信号(补充缠论背驰,门槛更宽、数量更多):
+    比较相邻两个同向确认笔的端点。
+    - 常规背离(反转):价创新低/新高,而指标拒绝新极值 → 类一类买卖点,≥2 票成立;
+    - 隐藏背离(中继):价未创新极值(低点抬高/高点降低)而指标创出新极值
+      → 顺原方向的回调结束信号,类二/三类买卖点,≥3 票成立(更严防噪音)。
+    五票 = MACD柱 / DIF / RSI6 / KDJ-J / 量能,票越多越可靠。
+    与缠论背驰同点的常规背离不再重复输出(已有更强的⚡背驰+B1/S1)。
+    返回 [{type: DB|DS, subtype: regular|hidden, k_idx, price, ts,
+           votes, score, grade, note}],评分 0-100 越高越好(乘级别权重)。"""
+    if len(candles) < 30:
+        return []
+    df_c = pd.Series([c["c"] for c in candles], dtype=float)
+    df_h = pd.Series([c["h"] for c in candles], dtype=float)
+    df_l = pd.Series([c["l"] for c in candles], dtype=float)
+    dif = macd(df_c)[0].tolist()
+    hist = macd_hist_list(candles)
+    r6 = rsi(df_c, 6).tolist()
+    jv = kdj(df_h, df_l, df_c)[2].tolist()
+    lvl_w = LEVEL_WEIGHT.get(bar, 1.0)
+    bc_at = {b["k_idx"] for b in bcs}
+
+    def seg_ext(arr, b, fn):
+        return fn(arr[b["start_idx"]: b["end_idx"] + 1])
+
+    def unit_vol(b):
+        seg = candles[b["start_idx"]: b["end_idx"] + 1]
+        return sum(c["vol"] for c in seg) / max(len(seg), 1)
+
+    out = []
+    for i in range(2, len(bis)):
+        b1, b2 = bis[i - 2], bis[i]
+        if b1["dir"] != b2["dir"] or b1["unfinished"] or b2["unfinished"]:
+            continue
+        d = b2["dir"]
+        e1, e2 = b1["end_idx"], b2["end_idx"]
+        buy = d == "down"
+        new_ext = b2["end_price"] < b1["end_price"] if buy \
+            else b2["end_price"] > b1["end_price"]
+        # 指标在两端点/两段内的取值(段内取极值,端点取当根)
+        if buy:
+            h1, h2 = seg_ext(hist, b1, min), seg_ext(hist, b2, min)
+            f1, f2 = seg_ext(dif, b1, min), seg_ext(dif, b2, min)
+        else:
+            h1, h2 = seg_ext(hist, b1, max), seg_ext(hist, b2, max)
+            f1, f2 = seg_ext(dif, b1, max), seg_ext(dif, b2, max)
+        rv1, rv2 = r6[e1], r6[e2]
+        j1, j2 = jv[e1], jv[e2]
+        v1, v2 = unit_vol(b1), unit_vol(b2)
+
+        votes = []
+        if new_ext:
+            if e2 in bc_at:
+                continue  # 与缠论背驰同点,不重复
+            subtype = "regular"
+            # 价新极值,指标拒绝确认(反向收敛)
+            if (h2 > h1 and h1 < 0) if buy else (h2 < h1 and h1 > 0):
+                votes.append("MACD柱")
+            if (f2 > f1) if buy else (f2 < f1):
+                votes.append("DIF")
+            if (rv2 > rv1) if buy else (rv2 < rv1):
+                votes.append("RSI")
+            if (j2 > j1) if buy else (j2 < j1):
+                votes.append("KDJ")
+            if v2 < v1:
+                votes.append("缩量")
+            if len(votes) < 2:
+                continue
+            word = "低" if buy else "高"
+            note = (f"价创新{word}而 {'/'.join(votes)} 拒绝新{word}"
+                    f"(常规{'底' if buy else '顶'}背离,反转信号)")
+        else:
+            subtype = "hidden"
+            # 价未新极值(回调),指标却更极端 → 动能被回调消化,原方向未完
+            if (h2 < h1) if buy else (h2 > h1):
+                votes.append("MACD柱")
+            if (f2 < f1) if buy else (f2 > f1):
+                votes.append("DIF")
+            if (rv2 < rv1) if buy else (rv2 > rv1):
+                votes.append("RSI")
+            if (j2 < j1) if buy else (j2 > j1):
+                votes.append("KDJ")
+            if v2 < v1:
+                votes.append("缩量")
+            if len(votes) < 3:
+                continue
+            note = (f"{'回调低点抬高' if buy else '反弹高点降低'}而指标更弱"
+                    f"({'/'.join(votes)}),隐藏{'多头' if buy else '空头'}背离,"
+                    f"{'上涨' if buy else '下跌'}中继——须与大级别方向同向才可用")
+
+        raw = sum(_DL_VOTE_W[v] for v in votes)
+        if (rv2 < 30) if buy else (rv2 > 70):
+            raw += 10  # 超卖/超买区共振
+        if subtype == "regular":
+            raw += 12  # 创出新极值后被拒绝,反转意义更明确
+        score = round(min(100.0, raw) * lvl_w, 1)
+        out.append({
+            "type": "DB" if buy else "DS", "subtype": subtype,
+            "k_idx": e2, "price": b2["end_price"], "ts": b2["end_ts"],
+            "votes": votes, "score": score, "grade": _grade(score),
+            "note": note,
+        })
+    out.sort(key=lambda p: p["k_idx"])
+    return out
+
+
 # ---------------------------------------------------------------- 买卖点
 
 def _grade(score):
@@ -313,6 +426,44 @@ def find_bsp(bis, zss, bcs, candles, bar):
     fin = bis
     lvl_w = LEVEL_WEIGHT.get(bar, 1.0)
 
+    # 共振确认用指标序列(信号点处的独立佐证,不改变手册评分口径)
+    close_s = pd.Series([c["c"] for c in candles], dtype=float)
+    high_s = pd.Series([c["h"] for c in candles], dtype=float)
+    low_s = pd.Series([c["l"] for c in candles], dtype=float)
+    k_s, d_s, j_s = kdj(high_s, low_s, close_s)
+    kv, dv, jv = k_s.tolist(), d_s.tolist(), j_s.tolist()
+    r6 = rsi(close_s, 6).tolist()
+    hist = macd_hist_list(candles)
+
+    def confirms_at(type_, k_idx):
+        """信号点±2根内的指标共振票:KDJ叉 / KDJ钝化 / RSI超卖超买 / MACD柱拐头。
+        未锁定的最新信号右侧K线还没走出来,票数会偏少,属正常。"""
+        buy = type_[0] == "B"
+        cf = []
+        lo, hi = max(1, k_idx - 2), min(len(candles) - 1, k_idx + 2)
+        for t in range(lo, hi + 1):
+            if buy and kv[t - 1] <= dv[t - 1] and kv[t] > dv[t]:
+                cf.append("KDJ金叉")
+                break
+            if not buy and kv[t - 1] >= dv[t - 1] and kv[t] < dv[t]:
+                cf.append("KDJ死叉")
+                break
+        if buy and jv[k_idx] < 0:
+            cf.append("J值超卖钝化")
+        elif not buy and jv[k_idx] > 100:
+            cf.append("J值超买钝化")
+        if buy and r6[k_idx] < 30:
+            cf.append("RSI超卖")
+        elif not buy and r6[k_idx] > 70:
+            cf.append("RSI超买")
+        nxt = min(k_idx + 2, len(candles) - 1)
+        if nxt > k_idx:
+            if buy and hist[nxt] > hist[k_idx]:
+                cf.append("MACD柱拐头向上")
+            elif not buy and hist[nxt] < hist[k_idx]:
+                cf.append("MACD柱拐头向下")
+        return cf
+
     def vol_rate(b):
         """笔区间的单位K线均量(归一化,便于不同长度笔比较)。"""
         seg = candles[b["start_idx"]: b["end_idx"] + 1]
@@ -320,8 +471,10 @@ def find_bsp(bis, zss, bcs, candles, bar):
 
     def emit(type_, k_idx, price, ts, note, raw):
         score = min(100.0, round(raw * lvl_w, 1))
+        cf = confirms_at(type_, k_idx)
         out.append({"type": type_, "k_idx": k_idx, "price": price, "ts": ts,
-                    "note": note, "score": score, "grade": _grade(score)})
+                    "note": note, "score": score, "grade": _grade(score),
+                    "confirms": cf, "confirm_n": len(cf)})
 
     # 1类:有效背驰的端点。评分主要继承背驰评分(已含面积比/趋势盘整/结构等)
     for bc in bcs:
@@ -420,12 +573,13 @@ def analyze(candles, bar):
     """主入口。candles 为升序、仅含已完结K线。"""
     if len(candles) < 10:
         return {"fenxing": [], "bi": [], "zhongshu": [], "beichi": [],
-                "bsp": [], "summary": {}}
+                "beili": [], "bsp": [], "summary": {}}
     merged = merge_klines(candles)
     fenxing = find_fenxing(merged, candles)
     bis, _ = build_bi(fenxing, candles)
     zss = build_zhongshu(bis, candles)
     bcs = detect_beichi(bis, zss, candles, bar)
+    bli = detect_beili(bis, bcs, candles, bar)
     bsp = find_bsp(bis, zss, bcs, candles, bar)
     # 锁定状态:信号所在笔端点之后已有新的确认笔 → 锁定;
     # 位于最新确认笔端点上的信号未锁定,若出现更极端分型,端点和信号仍会移动
@@ -435,6 +589,8 @@ def analyze(candles, bar):
         p["locked"] = p["k_idx"] < last_end
     for b in bcs:
         b["locked"] = b["k_idx"] < last_end
+    for b in bli:
+        b["locked"] = b["k_idx"] < last_end
     summary = summarize(bis, zss, bcs, bsp, candles)
     return {"fenxing": fenxing, "bi": bis, "zhongshu": zss,
-            "beichi": bcs, "bsp": bsp, "summary": summary}
+            "beichi": bcs, "beili": bli, "bsp": bsp, "summary": summary}

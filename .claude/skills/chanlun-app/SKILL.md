@@ -27,14 +27,14 @@ lsof -nP -iTCP:8420 -sTCP:LISTEN
 | 文件 | 职责 |
 |---|---|
 | server.py | OKX拉取(candles+history-candles分页到600根,倒序转正序)、缓存dict、路由 |
-| chan.py | 包含处理→分型→新笔→中枢→背驰→买卖点+评分+锁定标志 |
+| chan.py | 包含处理→分型→新笔→中枢→背驰→指标背离(detect_beili)→买卖点+评分+共振票+锁定标志 |
 | indicators.py | MACD/KDJ/RSI(国内公式) + analyze_signals(量价/主力/KDJ/RSI背离) |
 | decision.py | decide(单级别决策:大级别定方向+本级别定买点) + LEVEL_UP 映射 |
 | patterns.py | 收敛三角形(中枢震荡收敛,突破≈三类买卖点) |
 | static/app.js | 图表、overlay绘制、面板渲染、增量刷新、仓位计算器 |
 
 API:`GET /api/kline?inst=ETH-USDT-SWAP&bar=4H&force=0|1` → candles + indicators +
-chan{fenxing,bi,zhongshu,beichi,bsp,summary} + signals + patterns + decision。
+chan{fenxing,bi,zhongshu,beichi,beili,bsp,summary} + signals + patterns + decision。
 `GET /api/instruments` → 快捷币列表。
 bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=0。
 **所有分析只用 confirm==1 的已收盘K线**;现价/price_pos 例外(用实时价)。
@@ -131,3 +131,16 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
 超短线三级共振模式(scalp/`/api/scalp`/⚡开关)、双顶双底形态(七项检验)、
 主力护盘位标注(hupan)三项已整体删除。仓位计算器保留,入口从原超短线横幅
 移到普通决策横幅的「仓位计算器」按钮(openCalc 用 state.data.decision 预填)。
+
+## 10. 指标背离信号(2026-08 新增,补充缠论背驰太少的问题)
+
+- chan.detect_beili:比较相邻两个同向确认笔端点,五票制(MACD柱22/DIF16/
+  RSI16/KDJ12/缩量12)。常规背离(价新极值而指标拒绝,≥2票,反转)、
+  隐藏背离(价未新极值而指标更极端,≥3票,中继须顺大级别)。
+  评分=票权重+超卖超买区10+常规12,×LEVEL_WEIGHT,越高越好;与缠论背驰
+  同 k_idx 的常规背离不输出(避免与⚡背驰/B1 重复)。类型 DB/DS,锁定机制同背驰。
+- find_bsp 每个买卖点带 confirms/confirm_n(信号点±2根:KDJ叉、J钝化、
+  RSI超卖超买、MACD柱拐头);decision 确认票 3票制→4票制(第4票=信号点共振≥2)。
+- 前端:开关 ckDl「指标背离」,图上青(#1b7c83)买/洋红(#bf3989)卖标签
+  offset 34,「隐」前缀=隐藏背离;面板买卖点表与 bsp 合并按 k_idx 排序。
+- 手册缠论口径(面积比<0.7 等)未动,背离是并行的补充信号层。

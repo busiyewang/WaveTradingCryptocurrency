@@ -180,7 +180,7 @@
   };
   $('instInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('goBtn').onclick(); });
   $('refreshBtn').onclick = () => loadData(true);
-  ['ckFx', 'ckBi', 'ckZs', 'ckBc', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
+  ['ckFx', 'ckBi', 'ckZs', 'ckBc', 'ckDl', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
 
   /* ---------------- 数据加载 ---------------- */
   async function loadData(force) {
@@ -256,7 +256,7 @@
       html += `<span class="blk" style="white-space:normal;max-width:640px">${d.reason}</span>`;
     } else {
       html += blk('信号', `${d.signal.type} @ ${fmtP(d.signal.price)}(质量 ${d.signal_quality})${d.signal.locked === false ? ' <span class="warn">未锁定·或移动</span>' : ''}`);
-      html += blk('指标确认', `${d.confirm_hits}/3:${d.confirms.join('、')}`);
+      html += blk('指标确认', `${d.confirm_hits}/4:${d.confirms.join('、')}`);
       html += blk('质量分 q', `<b style="color:${c}">${d.q}</b> → 建议标准仓位的 ${d.position}%`);
       html += blk('入场参考', fmtP(d.entry));
       html += blk(d.stop_name, `<span class="down">${fmtP(d.stop)}</span>`);
@@ -319,6 +319,25 @@
           extendData: b.dir === 'down'
             ? { text: `⚡底背驰 ${b.area_ratio}${tail}`, pos: 'below', bg, textColor: '#fff', offset: 20 }
             : { text: `⚡顶背驰 ${b.area_ratio}${tail}`, pos: 'above', bg, textColor: '#fff', offset: 20 },
+        });
+      });
+    }
+    if ($('ckDl').checked && ch.beili) {
+      ch.beili.forEach((s) => {
+        const buy = s.type === 'DB';
+        const unlocked = s.locked === false;
+        const hidden = s.subtype === 'hidden';
+        // 青色=背离买点,洋红=背离卖点;隐藏背离(中继)加「隐」前缀
+        const solid = buy ? '#1b7c83' : '#bf3989';
+        const faded = buy ? 'rgba(27,124,131,0.5)' : 'rgba(191,57,137,0.5)';
+        mk({
+          name: 'chanMark',
+          points: [{ timestamp: s.ts, value: s.price }],
+          extendData: {
+            text: (hidden ? '隐' : '') + (buy ? '背离B' : '背离S') + ` ${s.votes.length}票` + (unlocked ? '?' : ''),
+            pos: buy ? 'below' : 'above', offset: 34,
+            bg: unlocked ? faded : solid, textColor: '#fff',
+          },
         });
       });
     }
@@ -475,22 +494,35 @@
     });
     $('colBc').innerHTML = '<h3>背驰 · 形态</h3>' + bcHtml;
 
-    /* 买卖点 */
+    /* 买卖点 + 指标背离(合并按时间排序) */
+    const sigItems = ch.bsp.map((p) => ({ ...p, _dl: false }))
+      .concat((ch.beili || []).map((p) => ({ ...p, _dl: true })))
+      .sort((a, b) => a.k_idx - b.k_idx);
     let rows = '';
-    ch.bsp.slice(-14).reverse().forEach((p) => {
-      const buy = p.type[0] === 'B';
+    sigItems.slice(-18).reverse().forEach((p) => {
+      const buy = p.type[0] === 'B' || p.type === 'DB';
       const unlocked = p.locked === false;
       const sc = p.score;
       const scColor = sc >= 75 ? '#2ebd85' : sc >= 60 ? '#4c8dff' : sc >= 45 ? '#d29922' : '#6e7681';
+      let tag, tagBg, note;
+      if (p._dl) {
+        tag = (p.subtype === 'hidden' ? '隐' : '') + (buy ? '背离B' : '背离S');
+        tagBg = buy ? '#1b7c83' : '#bf3989';
+        note = `${p.votes.length}票(${p.votes.join('·')})。${p.note}`;
+      } else {
+        tag = p.type;
+        tagBg = buy ? '#1a7f37' : '#cf222e';
+        note = (p.confirm_n ? `共振${p.confirm_n}票:${p.confirms.join('·')}。` : '') + p.note;
+      }
       rows += `<tr class="row" data-ts="${p.ts}">
-        <td><span class="tag" style="background:${buy ? '#1a7f37' : '#cf222e'};${unlocked ? 'opacity:.55' : ''}">${p.type}${unlocked ? '?' : ''}</span></td>
+        <td><span class="tag" style="background:${tagBg};${unlocked ? 'opacity:.55' : ''}">${tag}${unlocked ? '?' : ''}</span></td>
         <td>${fmtP(p.price)}</td>
         <td>${sc != null ? `<b style="color:${scColor}">${sc}</b> <span class="muted">${p.grade || ''}</span>` : '-'}</td>
         <td>${unlocked ? '<span class="tag" style="background:#d29922">未锁定</span>' : '<span class="muted">已锁定</span>'}</td>
         <td class="muted">${fmtTs(p.ts)}</td>
-        <td class="muted" style="font-size:11px">${p.note}</td></tr>`;
+        <td class="muted" style="font-size:11px">${note}</td></tr>`;
     });
-    $('colBsp').innerHTML = '<h3>买卖点(点击跳转)</h3>' +
+    $('colBsp').innerHTML = '<h3>买卖点 · 指标背离(点击跳转)</h3>' +
       (rows ? `<table><tr><th>类型</th><th>价格</th><th>评分</th><th>状态</th><th>时间</th><th>说明</th></tr>${rows}</table>`
             : '<div class="muted">当前范围内未检测到买卖点。</div>');
     document.querySelectorAll('#colBsp tr.row').forEach((tr) => {

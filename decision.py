@@ -93,7 +93,7 @@ def decide(cur, hi, bar, hi_bar):
                           f"但{hi_bar}大级别方向相反({hd['desc']})。"
                           f"手册规定:信号与大级别冲突,禁止操作。"}
 
-    # 指标确认票(3 票制)
+    # 指标确认票(4 票制:当前 KDJ 叉 / RSI 背离 / 量价组合 / 信号点自身共振)
     confirms, hits = [], 0
     kdj_states = (sg.get("kdj") or {}).get("states") or []
     cross_ok = any(("金叉" if side == "long" else "死叉") in s for s in kdj_states)
@@ -109,11 +109,16 @@ def decide(cur, hi, bar, hi_bar):
     if combo in good_combo:
         confirms.append(f"量价配合({combo})")
         hits += 1
+    # 信号点自身的指标共振(chan.find_bsp 计算:KDJ叉/钝化、RSI超卖超买、MACD柱拐头)
+    sig_cf = active.get("confirms") or []
+    if len(sig_cf) >= 2:
+        confirms.append("信号点共振:" + "、".join(sig_cf))
+        hits += 1
     if not confirms:
         confirms.append("暂无指标确认")
 
     sq = _signal_quality(active, ch["beichi"])
-    q = round(hd["strength"] * 0.4 + sq * 0.4 + (hits / 3) * 0.2, 3)
+    q = round(hd["strength"] * 0.4 + sq * 0.4 + (hits / 4) * 0.2, 3)
     if q >= 0.85:
         pos_pct = 100
     elif q >= 0.7:
@@ -125,7 +130,7 @@ def decide(cur, hi, bar, hi_bar):
     else:
         return {**base, "action": "wait", "q": q, "signal": active,
                 "reason": f"信号 {active['type']} 与大级别不冲突,但综合质量分 {q} 过低"
-                          f"(方向强度 {hd['strength']}、信号质量 {sq}、确认 {hits}/3),"
+                          f"(方向强度 {hd['strength']}、信号质量 {sq}、确认 {hits}/4),"
                           f"手册标准:q<0.35 观望。"}
 
     # 止损:结构止损 vs 中枢止损,取离入场更近(更保守)者
