@@ -6,6 +6,8 @@
 - RSI 用 Wilder 平滑(SMA(x,n,1))
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
@@ -141,40 +143,6 @@ def analyze_signals(candles: list[dict], bis: list[dict] | None = None) -> dict:
         evidence.append("价格处于区间中部,量价特征不典型")
     zone = "低位" if pos <= 0.35 else ("高位" if pos >= 0.65 else "中部")
 
-    # ---------- 主力护盘:近 40 根内长下影K线聚集在同一价位区 ----------
-    # 特征:同一支撑区反复出现长下影(下探被买盘拉回),≥3 次即视为护盘/承接
-    w2 = min(40, len(df))
-    shadow_lows = []
-    for i in range(len(df) - w2, len(df)):
-        o_, c_ = float(opn.iloc[i]), float(close.iloc[i])
-        h_, l_ = float(high.iloc[i]), float(low.iloc[i])
-        rng = h_ - l_
-        if rng > 0 and (min(o_, c_) - l_) >= 0.5 * rng:
-            ma_ = float(vol_ma20.iloc[i])
-            shadow_lows.append((l_, float(vol.iloc[i]) / ma_ if ma_ > 0 else 1.0))
-    hupan = None
-    if shadow_lows:
-        shadow_lows.sort()
-        best, cluster = [], []
-        for lv, vr in shadow_lows:
-            if not cluster or lv <= cluster[0][0] * 1.01:  # 1% 内视为同一价位区
-                cluster.append((lv, vr))
-            else:
-                if len(cluster) > len(best):
-                    best = cluster
-                cluster = [(lv, vr)]
-        if len(cluster) > len(best):
-            best = cluster
-        if len(best) >= 3:
-            level = sum(l for l, _ in best) / len(best)
-            hupan = {"level": round(level, 8), "touches": len(best),
-                     "vol_support": any(vr > 1.2 for _, vr in best)}
-            evidence.append(f"{hupan['level']} 附近 {hupan['touches']} 次长下影承接"
-                            + ("(放量承接)" if hupan["vol_support"] else "")
-                            + ",疑似主力护盘")
-            if concl == "无明显主力行为特征":
-                concl = "疑似主力护盘/承接"
-
     # ---------- KDJ 状态 ----------
     k, d, j = kdj(high, low, close)
     kv, dv, jv = float(k.iloc[-1]), float(d.iloc[-1]), float(j.iloc[-1])
@@ -254,7 +222,6 @@ def analyze_signals(candles: list[dict], bis: list[dict] | None = None) -> dict:
             "combo": combo, "combo_note": combo_note,
             "zone": zone, "pos": rnd(pos * 100),
             "zhuli": {"conclusion": concl, "evidence": evidence},
-            "hupan": hupan,
         },
         "kdj": {"k": rnd(kv), "d": rnd(dv), "j": rnd(jv), "states": kdj_states},
         "rsi": {"r6": rnd(r6), "r12": rnd(r12), "r24": rnd(r24),

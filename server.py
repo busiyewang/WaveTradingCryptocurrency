@@ -90,8 +90,7 @@ def build_payload(inst_id: str, bar: str):
                          ("below_zd" if live < z["zd"] else "inside")
     inds = indicators.compute_all(candles)
     signals = indicators.analyze_signals(confirmed, analysis.get("bi"))
-    pats = patterns.detect_double(analysis.get("bi") or [], confirmed, inst_id) + \
-        patterns.detect_triangle(analysis.get("bi") or [], confirmed)
+    pats = patterns.detect_triangle(analysis.get("bi") or [], confirmed)
     return {
         "patterns": pats,
         "code": 0, "inst": inst_id, "bar": bar,
@@ -131,24 +130,6 @@ def _get_data(inst: str, bar: str, force: bool):
     data = build_payload(inst, bar)
     _cache[key] = {"ts": time.time(), "data": data}
     return data
-
-
-@app.get("/api/scalp")
-def api_scalp():
-    """超短线三级共振:1H 定方向 / 5M 找买卖点 / 1M 扳机(手册场景二)。"""
-    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
-    force = request.args.get("force", "0") == "1"
-    try:
-        d1h = _get_data(inst, "1H", force)
-        d5m = _get_data(inst, "5m", force)
-        d1m = _get_data(inst, "1m", force)
-        return jsonify({"code": 0, "inst": inst,
-                        "fetched_at": int(time.time() * 1000),
-                        "scalp": decision.scalp(d1h, d5m, d1m)})
-    except requests.RequestException as e:
-        return jsonify({"code": 1, "msg": f"网络错误: {e}"}), 502
-    except RuntimeError as e:
-        return jsonify({"code": 1, "msg": str(e)}), 400
 
 
 @app.get("/api/instruments")

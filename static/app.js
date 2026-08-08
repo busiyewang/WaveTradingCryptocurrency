@@ -180,7 +180,7 @@
   };
   $('instInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('goBtn').onclick(); });
   $('refreshBtn').onclick = () => loadData(true);
-  ['ckFx', 'ckBi', 'ckZs', 'ckBc', 'ckBsp', 'ckPat', 'ckTri', 'ckHp'].forEach((id) => { $(id).onchange = drawOverlays; });
+  ['ckFx', 'ckBi', 'ckZs', 'ckBc', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
 
   /* ---------------- 数据加载 ---------------- */
   async function loadData(force) {
@@ -195,7 +195,6 @@
       if (j.code !== 0) throw new Error(j.msg || '未知错误');
       state.data = j;
       applyData();
-      if (state.scalpOn) fetchScalp(force);
       setStatus(`${j.count} 根K线 · 更新于 ${new Date(j.fetched_at).toLocaleTimeString()}`);
     } catch (e) {
       setStatus(`加载失败: ${e.message}`, true);
@@ -240,7 +239,6 @@
 
   /* ---------------- 交易决策 ---------------- */
   function renderDecision() {
-    if (state.scalpOn) { renderScalpBanner(); return; }
     const d = state.data && state.data.decision;
     const el = $('decision');
     if (!d) { el.style.display = 'none'; return; }
@@ -268,44 +266,9 @@
       if (d.rr != null) html += blk('盈亏比', `1:${d.rr}`);
       (d.warnings || []).forEach((w) => { html += `<span class="blk warn" style="white-space:normal;max-width:360px">⚠ ${w}</span>`; });
     }
+    html += '<button id="calcOpen">仓位计算器</button>';
     html += `<span class="blk muted" style="white-space:normal;max-width:420px">${d.rules}。仅供参考,非投资建议。</span>`;
     el.innerHTML = html;
-  }
-
-  function renderScalpBanner() {
-    const el = $('decision');
-    el.style.display = 'flex';
-    const s = state.scalp;
-    if (!s || s.loading) {
-      el.style.borderLeftColor = '#d29922';
-      el.innerHTML = '<span class="act" style="color:#d29922">⚡超短线</span><span class="muted">拉取 1H / 5M / 1M 三级数据中…</span>';
-      return;
-    }
-    if (s.error) {
-      el.style.borderLeftColor = '#f6465d';
-      el.innerHTML = `<span class="act" style="color:#f6465d">⚡超短线</span><span class="warn">加载失败: ${s.error},点"⟳ 刷新"重试</span>`;
-      return;
-    }
-    const colorMap = { long: '#2ebd85', short: '#f6465d', wait: '#8b949e' };
-    const nameMap = { long: '可考虑做多', short: '可考虑做空', wait: '观望' };
-    const c = colorMap[s.action];
-    el.style.borderLeftColor = c;
-    const blk = (lbl, val) => `<span class="blk"><span class="lbl">${lbl}</span>${val}</span>`;
-    let h = `<span class="act" style="color:${c}">⚡${nameMap[s.action]}</span>`;
-    h += blk('① 1H 方向(40%)', s.dir_desc);
-    h += blk('② 5M 信号(40%)', s.sig5m ? `${s.sig5m.type} @ ${fmtP(s.sig5m.price)}${s.sig5m.locked === false ? ' <span class="warn">未锁定</span>' : ''}` : '无活跃买卖点');
-    h += blk('③ 1M 扳机(20%)', `<span style="white-space:normal;display:inline-block;max-width:300px">${s.trig1m || '—'}</span>`);
-    if (s.action === 'wait') {
-      h += `<span class="blk" style="white-space:normal;max-width:520px">${s.reason || ''}</span>`;
-    } else {
-      h += blk('质量分 q', `<b style="color:${c}">${s.q}</b> → 仓位 ${s.position}%`);
-      h += blk('入场', fmtP(s.entry));
-      h += blk(s.stop_name, `<span class="down">${fmtP(s.stop)}</span>`);
-      h += blk('分级止盈', s.targets.map((t, i) => `止盈${i + 1} ${fmtP(t[1])}`).join(' → ') + '(40/30/30)');
-    }
-    h += '<button id="calcOpen">仓位计算器</button>';
-    h += '<span class="blk muted" style="white-space:normal;max-width:300px">图上蓝/红/绿线=入场/止损/止盈。仅供参考,非投资建议。</span>';
-    el.innerHTML = h;
     $('calcOpen').onclick = openCalc;
   }
 
@@ -359,66 +322,24 @@
         });
       });
     }
-    if (state.data.patterns) {
-      state.data.patterns.forEach((p) => {
-        if (p.type === 'triangle') {
-          if (!$('ckTri').checked) return;
-          // 收敛三角形:上轨 + 下轨
-          const triColor = p.break_dir === 'up' ? '#2ebd85' : p.break_dir === 'down' ? '#f6465d' : '#8250df';
-          [p.upper, p.lower].forEach((ln) => mk({
-            name: 'biLine',
-            points: [
-              { timestamp: ln[0][0], value: ln[0][1] },
-              { timestamp: ln[1][0], value: ln[1][1] },
-            ],
-            extendData: { color: triColor, dashed: true },
-          }));
-          mk({
-            name: 'chanMark',
-            points: [{ timestamp: p.upper[1][0], value: p.upper[1][1] }],
-            extendData: { text: '收敛' + (p.break_dir ? (p.break_dir === 'up' ? '↑破' : '↓破') : '△'), pos: 'above', offset: 4, bg: triColor, textColor: '#fff' },
-          });
-          return;
-        }
-        if (!$('ckPat').checked) return;
-        const isTop = p.type === 'double_top';
-        const lastTs = d.candles[d.candles.length - 1].ts;
-        // 颈线(虚线)
-        mk({
+    if ($('ckTri').checked) {
+      (d.patterns || []).forEach((p) => {
+        if (p.type !== 'triangle') return;
+        // 收敛三角形:上轨 + 下轨
+        const triColor = p.break_dir === 'up' ? '#2ebd85' : p.break_dir === 'down' ? '#f6465d' : '#8250df';
+        [p.upper, p.lower].forEach((ln) => mk({
           name: 'biLine',
           points: [
-            { timestamp: p.neck_ts, value: p.neck },
-            { timestamp: Math.min(p.p2_ts + (p.p2_ts - p.neck_ts) * 2, lastTs), value: p.neck },
+            { timestamp: ln[0][0], value: ln[0][1] },
+            { timestamp: ln[1][0], value: ln[1][1] },
           ],
-          extendData: { color: isTop ? '#f6465d' : '#2ebd85', dashed: true },
-        });
-        // 两个顶/底标记
-        [[p.p1_ts, p.p1_price], [p.p2_ts, p.p2_price]].forEach(([ts, price], idx) => mk({
-          name: 'chanMark',
-          points: [{ timestamp: ts, value: price }],
-          extendData: {
-            text: (isTop ? 'M顶' : 'W底') + (idx + 1),
-            pos: isTop ? 'above' : 'below', offset: 34,
-            bg: isTop ? '#8250df' : '#0969da', textColor: '#fff',
-          },
+          extendData: { color: triColor, dashed: true },
         }));
-      });
-    }
-    const hupan = state.data.signals && state.data.signals.volume && state.data.signals.volume.hupan;
-    if ($('ckHp').checked && hupan) {
-      const cs = d.candles;
-      mk({
-        name: 'biLine',
-        points: [
-          { timestamp: cs[Math.max(0, cs.length - 45)].ts, value: hupan.level },
-          { timestamp: cs[cs.length - 1].ts, value: hupan.level },
-        ],
-        extendData: { color: '#2ebd85', dashed: true },
-      });
-      mk({
-        name: 'chanMark',
-        points: [{ timestamp: cs[Math.max(0, cs.length - 45)].ts, value: hupan.level }],
-        extendData: { text: `护盘位 ${hupan.touches}次承接`, pos: 'below', bg: '#1a7f37', textColor: '#fff' },
+        mk({
+          name: 'chanMark',
+          points: [{ timestamp: p.upper[1][0], value: p.upper[1][1] }],
+          extendData: { text: '收敛' + (p.break_dir ? (p.break_dir === 'up' ? '↑破' : '↓破') : '△'), pos: 'above', offset: 4, bg: triColor, textColor: '#fff' },
+        });
       });
     }
     if ($('ckBsp').checked) {
@@ -491,10 +412,6 @@
         <div style="font-weight:600;color:${zColor}">${zl.conclusion}</div>
         ${zl.evidence.map((e) => `<div class="muted">· ${e}</div>`).join('')}
       </div>`;
-      if (v.hupan) {
-        volHtml += kv('主力护盘位', `<span class="up"><b>${fmtP(v.hupan.level)}</b></span> · 长下影承接 ${v.hupan.touches} 次${v.hupan.vol_support ? ' · 放量' : ''}`);
-        volHtml += '<div class="muted">图上绿色虚线;跌破护盘位=护盘失败,警惕加速下跌。</div>';
-      }
       volHtml += '<div class="muted">仅基于K线量价;CVD/持仓量/链上数据未接入。</div>';
     } else volHtml = '<div class="muted">数据不足。</div>';
     $('colVol').innerHTML = '<h3>量价 · 主力</h3>' + volHtml;
@@ -545,31 +462,15 @@
         <div class="scorebar"><div style="width:${Math.min(b.score, 100)}%;background:${scoreColor}"></div></div>
       </div>`;
     });
-    /* 形态卡片(双顶/双底 + 收敛三角形) */
-    (state.data.patterns || []).slice(-3).reverse().forEach((p) => {
-      if (p.type === 'triangle') {
-        const c = p.break_dir === 'up' ? '#2ebd85' : p.break_dir === 'down' ? '#f6465d' : '#8250df';
-        bcHtml += `<div class="card">
-          <div class="kv"><span style="font-weight:600;color:${c}">收敛三角形 · ${p.status}</span></div>
-          ${kv('上轨(当前)', fmtP(p.upper_now))}
-          ${kv('下轨(当前)', fmtP(p.lower_now))}
-          <div class="muted" style="margin-top:4px">${p.note}</div>
-        </div>`;
-        return;
-      }
-      const isTop = p.type === 'double_top';
-      const c = isTop ? '#f6465d' : '#2ebd85';
-      const checkRows = p.checks.map((k) =>
-        `<div class="kv"><span class="k">${k.ok ? '✓' : '✗'} ${k.name}</span>` +
-        `<span class="${k.ok ? 'up' : 'muted'}">${k.val}</span></div>`).join('');
+    /* 形态卡片(收敛三角形) */
+    (state.data.patterns || []).forEach((p) => {
+      if (p.type !== 'triangle') return;
+      const c = p.break_dir === 'up' ? '#2ebd85' : p.break_dir === 'down' ? '#f6465d' : '#8250df';
       bcHtml += `<div class="card">
-        <div class="kv"><span style="font-weight:600;color:${c}">${isTop ? '双顶 M' : '双底 W'} · ${p.status}</span>
-        <span class="muted">${fmtTs(p.p2_ts)}</span></div>
-        ${kv('两' + (isTop ? '顶' : '底'), `${fmtP(p.p1_price)} / ${fmtP(p.p2_price)}`)}
-        ${kv('颈线 / 量度目标', `${fmtP(p.neck)} / ${fmtP(p.target)}`)}
-        ${kv('七项检验', `<b>${p.passed}/${p.total}</b> 通过`)}
-        ${checkRows}
-        <div class="muted" style="margin-top:4px">${p.chan_note}</div>
+        <div class="kv"><span style="font-weight:600;color:${c}">收敛三角形 · ${p.status}</span></div>
+        ${kv('上轨(当前)', fmtP(p.upper_now))}
+        ${kv('下轨(当前)', fmtP(p.lower_now))}
+        <div class="muted" style="margin-top:4px">${p.note}</div>
       </div>`;
     });
     $('colBc').innerHTML = '<h3>背驰 · 形态</h3>' + bcHtml;
@@ -601,73 +502,17 @@
     return `<div class="kv"><span class="k">${k}</span><span>${v}</span></div>`;
   }
 
-  /* ---------------- 超短线模式(开关式) ---------------- */
-  $('scalpBtn').onclick = async () => {
-    state.scalpOn = !state.scalpOn;
-    $('scalpBtn').classList.toggle('active', state.scalpOn);
-    if (state.scalpOn) {
-      // 等待正在进行的加载结束,避免竞态
-      while (state.loading) await new Promise((r) => setTimeout(r, 150));
-      // 超短线操作级别是 5M,自动切过去
-      if (state.bar !== '5m' && state.bar !== '1m') {
-        state.bar = '5m';
-        syncActive();
-        await loadData(false);
-      }
-      fetchScalp(true);
-    } else {
-      state.scalp = null;
-      chart.removeOverlay({ groupId: 'scalp' });
-      renderDecision();
-    }
-  };
+  /* ---------------- 仓位计算器 ---------------- */
   $('modalClose').onclick = () => { $('modalMask').style.display = 'none'; };
   $('modalMask').onclick = (e) => { if (e.target === $('modalMask')) $('modalMask').style.display = 'none'; };
 
-  async function fetchScalp(force) {
-    state.scalp = { loading: true };
-    renderDecision();
-    try {
-      const r = await fetch(`/api/scalp?inst=${encodeURIComponent(state.inst)}&force=${force ? 1 : 0}`);
-      const j = await r.json();
-      if (j.code !== 0) throw new Error(j.msg || '未知错误');
-      state.scalp = j.scalp;
-    } catch (e) {
-      state.scalp = { error: e.message };
-    }
-    renderDecision();
-    drawScalpLines();
-  }
-
-  function drawScalpLines() {
-    chart.removeOverlay({ groupId: 'scalp' });
-    const s = state.scalp;
-    if (!state.scalpOn || !s || s.error || s.loading || s.action === 'wait' || !state.data) return;
-    const cs = state.data.candles;
-    const ts0 = cs[Math.max(0, cs.length - 100)].ts;
-    const line = (price, text, color) => {
-      if (price == null) return;
-      chart.createOverlay({
-        name: 'priceLine', groupId: 'scalp', lock: true,
-        points: [{ timestamp: ts0, value: price }],
-        styles: { line: { color }, text: { backgroundColor: color, color: '#fff' } },
-      });
-      chart.createOverlay({
-        name: 'chanMark', groupId: 'scalp', lock: true,
-        points: [{ timestamp: ts0, value: price }],
-        extendData: { text, pos: 'above', bg: color, textColor: '#fff' },
-      });
-    };
-    line(s.entry, '入场', '#1f6feb');
-    line(s.stop, '止损', '#f6465d');
-    (s.targets || []).forEach((t, i) => line(t[1], `止盈${i + 1}`, '#2ebd85'));
-  }
-
   function openCalc() {
-    const s = state.scalp || {};
-    if (s.action && s.action !== 'wait') $('cSide').value = s.action;
-    if (s.entry ?? s.live) $('cEntry').value = s.entry ?? s.live;
-    if (s.stop) $('cStop').value = s.stop;
+    // 用当前决策的方向/入场/止损预填,决策为观望时留空手填
+    const d = (state.data && state.data.decision) || {};
+    if (d.action && d.action !== 'wait') $('cSide').value = d.action;
+    const entry = d.entry ?? d.better_entry ?? (state.data && state.data.candles[state.data.candles.length - 1].c);
+    if (entry) $('cEntry').value = entry;
+    if (d.stop) $('cStop').value = d.stop;
     $('modalMask').style.display = 'flex';
     runCalc();
   }
@@ -715,5 +560,4 @@
     .catch(() => renderCoins(['BTC-USDT-SWAP', 'ETH-USDT-SWAP']));
   syncActive();
   loadData(false);
-  if (location.hash === '#scalp') $('scalpBtn').onclick();
 })();

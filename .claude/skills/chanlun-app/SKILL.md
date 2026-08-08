@@ -13,7 +13,7 @@ klinecharts 9.8.9 前端。规则依据同目录《缠论MACD币圈实战手册.
 
 ```bash
 # 启动(必须用 venv,系统无 python 命令、python3 无依赖)
-cd /Users/wangye/YeWang/缠论 && .venv/bin/python server.py   # → http://127.0.0.1:8420
+.venv/bin/python server.py   # → http://127.0.0.1:8420
 # 停止/查看
 kill $(lsof -ti:8420 -sTCP:LISTEN)
 lsof -nP -iTCP:8420 -sTCP:LISTEN
@@ -28,14 +28,14 @@ lsof -nP -iTCP:8420 -sTCP:LISTEN
 |---|---|
 | server.py | OKX拉取(candles+history-candles分页到600根,倒序转正序)、缓存dict、路由 |
 | chan.py | 包含处理→分型→新笔→中枢→背驰→买卖点+评分+锁定标志 |
-| indicators.py | MACD/KDJ/RSI(国内公式) + analyze_signals(量价/主力/护盘/KDJ/RSI背离) |
-| decision.py | decide(单级别决策) + scalp(1H/5M/1M三级共振) + LEVEL_UP 映射 |
-| patterns.py | 双顶双底(七项检验) + 收敛三角形 |
-| static/app.js | 图表、overlay绘制、面板渲染、增量刷新、超短线开关、仓位计算器 |
+| indicators.py | MACD/KDJ/RSI(国内公式) + analyze_signals(量价/主力/KDJ/RSI背离) |
+| decision.py | decide(单级别决策:大级别定方向+本级别定买点) + LEVEL_UP 映射 |
+| patterns.py | 收敛三角形(中枢震荡收敛,突破≈三类买卖点) |
+| static/app.js | 图表、overlay绘制、面板渲染、增量刷新、仓位计算器 |
 
 API:`GET /api/kline?inst=ETH-USDT-SWAP&bar=4H&force=0|1` → candles + indicators +
 chan{fenxing,bi,zhongshu,beichi,bsp,summary} + signals + patterns + decision。
-`GET /api/scalp?inst=` → 三级共振。`GET /api/instruments` → 快捷币列表。
+`GET /api/instruments` → 快捷币列表。
 bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=0。
 **所有分析只用 confirm==1 的已收盘K线**;现价/price_pos 例外(用实时价)。
 
@@ -84,7 +84,7 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
    副图断裂的半渲染状态。
 5. 内置 RSI 是简单均值,与 OKX(Wilder 平滑)差异大 → 已 registerIndicator
    'RSI_CN';内置 MACD/KDJ 与国内口径一致可直接用。
-6. 内置 overlay 'priceLine' 可画水平价格线(超短线的入场/止损/止盈线用它)。
+6. 内置 overlay 'priceLine' 可画水平价格线(需要画入场/止损/止盈线时用它)。
 7. text figure 支持 backgroundColor/padding(9.8 已并入,rectText 亦存在)。
 8. 调试入口:`window._chart` 已暴露(app.js)。
 
@@ -103,7 +103,7 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
   --headless=new --disable-gpu --no-proxy-server --hide-scrollbars
   --screenshot=out.png --window-size=1680,1080 --virtual-time-budget=15000
   'http://127.0.0.1:8420'`(virtual-time-budget 等异步数据渲染完)。
-  URL 加 `#scalp` 可自动开启超短线模式。
+
 - **交互问题用 CDP 实测**(scratchpad 有 cdp_test.py 模板):Chrome 加
   `--remote-debugging-port=9333 --remote-allow-origins='*'`,
   Input.dispatchMouseEvent 模拟拖动,前后对比 `_chart.getVisibleRange()`,
@@ -120,8 +120,14 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
 - 要**结论**不要只展示数据:先给 做多/做空/观望,再给依据和价位。
 - 所有评分统一"**越高越好**",避免两套方向。
 - 功能一律做成**复选框/开关按钮**直接在主界面操作,不要弹窗多步交互
-  (超短线曾做成弹窗被要求改为开关+图上画线)。
-- 每类新标注(护盘/收敛等)都要有独立开关;EMA 配色对齐 OKX:5白/10红/
+  (曾做成弹窗被要求改为开关+图上画线)。
+- 每类新标注(收敛等)都要有独立开关;EMA 配色对齐 OKX:5白/10红/
   20浅蓝/40橘黄。
 - 文档写进 README.md(含 FAQ:python 命令不存在、venv、端口占用等用户踩过的坑)。
 - 新概念要解释"怎么看"+落地成图上标注;信号滞后/重绘要明示(锁定机制)。
+
+## 9. 已移除的功能(2026-08 用户要求,勿重新引入)
+
+超短线三级共振模式(scalp/`/api/scalp`/⚡开关)、双顶双底形态(七项检验)、
+主力护盘位标注(hupan)三项已整体删除。仓位计算器保留,入口从原超短线横幅
+移到普通决策横幅的「仓位计算器」按钮(openCalc 用 state.data.decision 预填)。
