@@ -654,6 +654,94 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   <p class="sub">比较的是中枢内两次同向的次级别波动。它只意味着<b>这一段该结束了</b>，不代表趋势反转。<b>只能做 T / 短线，不能重仓反手。</b></p>
 </div>
 </div>
+
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格走势</span><span><i style="background:var(--accent)"></i>中枢</span><span><i style="background:var(--down)"></i>MACD 绿柱（空头动能）</span></div>
+  <svg viewBox="0 0 680 350" role="img" aria-label="趋势背驰与盘整背驰对照：MACD 表现相同，区别在中枢个数">
+    <!-- ============ 左：趋势背驰 ============ -->
+    <text x="30" y="18" fill="var(--up)" font-size="13" font-weight="700">趋势背驰 · 两个中枢</text>
+
+    <rect x="62" y="72" width="58" height="28" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="91" y="91" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">中枢①</text>
+    <rect x="172" y="136" width="62" height="26" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="203" y="154" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">中枢②</text>
+
+    <line x1="24" y1="162" x2="312" y2="162" stroke="var(--grid)" stroke-dasharray="4 4"/>
+    <line x1="24" y1="192" x2="312" y2="192" stroke="var(--up)" stroke-dasharray="4 4" stroke-width="1.2"/>
+    <text x="316" y="166" fill="var(--text-3)" font-size="10">前低</text>
+    <text x="316" y="196" fill="var(--up)" font-size="10" font-weight="600">新低</text>
+
+    <polyline points="30,45 62,72 76,96 90,74 104,98 118,76 172,142 190,158 204,136 218,160 232,138 300,192"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="124" y="108" fill="var(--text-2)" font-size="11.5" font-weight="600" transform="rotate(51 124 108)">段 A</text>
+    <text x="244" y="168" fill="var(--text-2)" font-size="11.5" font-weight="600" transform="rotate(38 244 168)">段 B</text>
+    <circle cx="300" cy="192" r="8" fill="none" stroke="var(--up)" stroke-width="2.5"/>
+    <text x="248" y="215" fill="var(--up)" font-size="11.5" font-weight="700">可能真反转 → 1 买候选</text>
+
+    <!-- 左 MACD -->
+    <line x1="24" y1="235" x2="330" y2="235" stroke="var(--border-strong)" stroke-width="1.2"/>
+    <text x="20" y="239" fill="var(--text-3)" font-size="9.5" text-anchor="end">0</text>
+    <g fill="var(--down)" opacity=".85">
+      <rect x="122" y="235" width="7" height="16" rx="2"/><rect x="132" y="235" width="7" height="28" rx="2"/>
+      <rect x="142" y="235" width="7" height="34" rx="2"/><rect x="152" y="235" width="7" height="26" rx="2"/>
+      <rect x="162" y="235" width="7" height="14" rx="2"/>
+    </g>
+    <g fill="var(--down)" opacity=".85">
+      <rect x="240" y="235" width="7" height="10" rx="2"/><rect x="250" y="235" width="7" height="16" rx="2"/>
+      <rect x="260" y="235" width="7" height="18" rx="2"/><rect x="270" y="235" width="7" height="13" rx="2"/>
+      <rect x="280" y="235" width="7" height="7" rx="2"/>
+    </g>
+    <path d="M122,277 L169,277" stroke="var(--down)" stroke-width="2"/>
+    <text x="145" y="290" fill="var(--down)" font-size="10.5" text-anchor="middle" font-weight="700">面积 A</text>
+    <path d="M240,261 L287,261" stroke="var(--down)" stroke-width="2"/>
+    <text x="263" y="274" fill="var(--down)" font-size="10.5" text-anchor="middle" font-weight="700">面积 B ≈ 0.5A</text>
+
+    <!-- ============ 中缝 ============ -->
+    <line x1="342" y1="10" x2="342" y2="300" stroke="var(--border)" stroke-dasharray="6 5"/>
+
+    <!-- ============ 右：盘整背驰 ============ -->
+    <text x="360" y="18" fill="var(--warn)" font-size="13" font-weight="700">盘整背驰 · 只有一个中枢</text>
+
+    <rect x="398" y="78" width="204" height="86" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="500" y="72" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">同一个中枢（价格来回震荡）</text>
+
+    <line x1="356" y1="155" x2="640" y2="155" stroke="var(--grid)" stroke-dasharray="4 4"/>
+    <line x1="356" y1="162" x2="640" y2="162" stroke="var(--warn)" stroke-dasharray="4 4" stroke-width="1.2"/>
+    <text x="644" y="159" fill="var(--text-3)" font-size="10">低 a</text>
+    <text x="644" y="172" fill="var(--warn)" font-size="10" font-weight="600">低 b（略低）</text>
+
+    <polyline points="365,52 400,148 430,82 470,155 505,80 560,162 600,104"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="432" y="124" fill="var(--text-2)" font-size="11.5" font-weight="600" transform="rotate(61 432 124)">段 a</text>
+    <text x="512" y="128" fill="var(--text-2)" font-size="11.5" font-weight="600" transform="rotate(56 512 128)">段 b</text>
+    <circle cx="560" cy="162" r="8" fill="none" stroke="var(--warn)" stroke-width="2.5"/>
+    <text x="470" y="215" fill="var(--warn)" font-size="11.5" font-weight="700">只是这一段结束 → 只能做 T</text>
+
+    <!-- 右 MACD -->
+    <line x1="356" y1="235" x2="660" y2="235" stroke="var(--border-strong)" stroke-width="1.2"/>
+    <text x="352" y="239" fill="var(--text-3)" font-size="9.5" text-anchor="end">0</text>
+    <g fill="var(--down)" opacity=".85">
+      <rect x="432" y="235" width="7" height="14" rx="2"/><rect x="442" y="235" width="7" height="26" rx="2"/>
+      <rect x="452" y="235" width="7" height="32" rx="2"/><rect x="462" y="235" width="7" height="24" rx="2"/>
+      <rect x="472" y="235" width="7" height="12" rx="2"/>
+    </g>
+    <g fill="var(--down)" opacity=".85">
+      <rect x="510" y="235" width="7" height="9" rx="2"/><rect x="520" y="235" width="7" height="15" rx="2"/>
+      <rect x="530" y="235" width="7" height="17" rx="2"/><rect x="540" y="235" width="7" height="12" rx="2"/>
+      <rect x="550" y="235" width="7" height="6" rx="2"/>
+    </g>
+    <path d="M432,275 L479,275" stroke="var(--down)" stroke-width="2"/>
+    <text x="455" y="288" fill="var(--down)" font-size="10.5" text-anchor="middle" font-weight="700">面积 a</text>
+    <path d="M510,259 L557,259" stroke="var(--down)" stroke-width="2"/>
+    <text x="533" y="272" fill="var(--down)" font-size="10.5" text-anchor="middle" font-weight="700">面积 b ≈ 0.5a</text>
+
+    <!-- ============ 底部结论 ============ -->
+    <rect x="24" y="308" width="636" height="34" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="329" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">两边 MACD 长得一模一样（都是后段面积 ≈ 前段一半）—— 唯一的区别在价格图：数中枢有几个</text>
+  </svg>
+  <figcaption><b>怎么用这张图：</b>先别看 MACD。<b>只看价格图上有几个蓝框</b>——两个依次下移的中枢，段 A 与段 B 分别是「离开中枢①」和「离开中枢②」的那一段，比它们才叫<b>趋势背驰</b>；如果价格从头到尾都在<b>同一个</b>蓝框里来回磨，段 a 与段 b 只是中枢内部两次次级别下跌，那是<b>盘整背驰</b>，跌破中枢下沿 ZD 随时可能变成真跌。<b>MACD 面积缩小在两种情况下完全一致，它无法帮你区分</b>，所以只信 MACD 的人必然会在震荡区间里反复抄底。</figcaption>
+</figure>
+
 <div class="callout warn">
   <span class="t">币圈最常见亏损来源</span>
   把<b>盘整背驰当趋势背驰</b>用。BTC 在一个大区间震荡三个月，你在每次"底背驰"抄底，前几次赚小钱，最后一次真跌破时全亏回去。<b>判别方法：数中枢。只有一个中枢 = 盘整背驰，不许重仓。</b>
