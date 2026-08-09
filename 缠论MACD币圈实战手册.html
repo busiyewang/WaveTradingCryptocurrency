@@ -1197,6 +1197,78 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   <b>激进：</b>1M 底背驰 + 底分型即入（价格更好，假信号更多）。<b>稳健：</b>再等 1M 一笔突破前高（价格差一点，胜率高一截）。<b>建议新手强制用稳健版跑满 100 笔再考虑激进。</b>
 </div>
 
+<h3 id="s7-4">7.4 同一套三级联立，做 1 买 / 2 买</h3>
+<p>§8.3 的完整剧本是 <b>3 买版</b>的。但三级联立不是只能做 3 买——「1H 定资格 → 5M 定结构 → 1M 扣扳机」这条流水线对三类买点<b>全部适用</b>，5M 和 1M 那两层完全不用改（还是 §7.3 那套区间套 + 底分型 + 一笔破前高），<b>唯一变的是 1H 层的资格条件，以及随之变化的仓位与止损</b>：</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>买点</th><th>1H 资格条件（唯一的区别）</th><th>5M 任务</th><th>止损</th><th>仓位</th></tr></thead>
+<tbody>
+<tr><td><b>1 买</b></td><td>趋势<b>将死</b>：至少两个依次下移的中枢 + 离开段创新低但 MACD 绿柱面积 &lt; 前段 0.7 倍、DIF 低点抬高（§2.2 左图的<b>趋势底背驰</b>，缺一不可）</td><td>在 1H 背驰段内部找 5M 同位置底背驰（区间套 §2.4）</td><td>1M 背驰低点下方 0.15–0.3%</td><td><b>≤ 1/3 试错仓</b>（§7.2 铁律）</td></tr>
+<tr><td><b>2 买</b></td><td>新趋势<b>初生</b>：1 买成立后 1H 第一次反弹结束、正在回调，回调低点<b>不破 1 买低点</b></td><td>回调结构走完整（至少三笔），末端出底背驰——此处<b>盘整背驰即可</b>（比的是回调内部两段，§2.2 右图的逻辑）</td><td><b>跌破 1 买低点</b>（2 买定义被破坏）</td><td><b>主力仓位</b>（§1.5 表格「推荐主力用法」）</td></tr>
+<tr><td><b>3 买</b></td><td>趋势<b>确认</b>：中枢依次抬高 + 价格在最新中枢之上 + DIF 零轴上（§8.3 剧本原文）</td><td>离开段放量 + 回踩不破 ZG</td><td>min(1M 背驰低点, ZG) 取更保守</td><td>顺势正常仓位</td></tr>
+</tbody>
+</table>
+</div>
+
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>1H 价格</span><span><i style="background:var(--accent)"></i>1H 中枢</span><span><i style="background:var(--up)"></i>买点与止损</span></div>
+  <svg viewBox="0 0 680 380" role="img" aria-label="1买2买3买接力图：同一段1H走势上三类买点的位置、止损与仓位">
+    <!-- 下跌中的两个中枢 -->
+    <rect x="60" y="60" width="75" height="32" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="97" y="80" fill="var(--accent)" font-size="10" font-weight="700" text-anchor="middle">中枢①</text>
+    <rect x="170" y="118" width="80" height="32" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="210" y="138" fill="var(--accent)" font-size="10" font-weight="700" text-anchor="middle">中枢②（更低）</text>
+    <!-- 上涨新中枢 -->
+    <rect x="430" y="120" width="90" height="35" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="475" y="141" fill="var(--accent)" font-size="10" font-weight="700" text-anchor="middle">新中枢③</text>
+    <line x1="430" y1="120" x2="640" y2="120" stroke="var(--accent)" stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="644" y="124" fill="var(--accent)" font-size="10" font-weight="700">ZG</text>
+
+    <!-- 1H 价格：下跌→1买→反弹→2买→新中枢→3买 -->
+    <polyline points="30,30 60,64 78,88 96,64 114,90 135,68 170,122 190,146 210,124 230,148 250,126 290,190 330,235 375,160 405,190 440,150 460,124 480,152 500,126 520,150 560,90 582,112 615,84 640,70"
+              fill="none" stroke="var(--text-1)" stroke-width="2.4" stroke-linejoin="round"/>
+
+    <!-- 段标注 -->
+    <text x="152" y="100" fill="var(--text-2)" font-size="10.5" font-weight="600" transform="rotate(48 152 100)">下跌段 A</text>
+    <text x="288" y="200" fill="var(--text-2)" font-size="10.5" font-weight="600" transform="rotate(42 288 200)">段 B · 背驰</text>
+    <text x="352" y="185" fill="var(--text-2)" font-size="10" transform="rotate(-55 352 185)">首次反弹</text>
+
+    <!-- 1买 -->
+    <circle cx="330" cy="235" r="8" fill="none" stroke="var(--up)" stroke-width="2.5"/>
+    <text x="330" y="262" fill="var(--up)" font-size="11.5" font-weight="700" text-anchor="middle">1 买</text>
+    <text x="330" y="276" fill="var(--text-3)" font-size="10" text-anchor="middle">试错仓 ≤1/3 · 左侧最便宜也最易被证伪</text>
+
+    <!-- 2买 -->
+    <circle cx="405" cy="190" r="8" fill="none" stroke="var(--up)" stroke-width="2.5"/>
+    <text x="405" y="171" fill="var(--up)" font-size="11.5" font-weight="700" text-anchor="middle">2 买</text>
+    <text x="416" y="212" fill="var(--text-3)" font-size="10">主力仓位 · 回调低点抬高</text>
+
+    <!-- 3买 -->
+    <circle cx="582" cy="112" r="8" fill="none" stroke="var(--up)" stroke-width="2.5"/>
+    <text x="582" y="93" fill="var(--up)" font-size="11.5" font-weight="700" text-anchor="middle">3 买</text>
+    <text x="592" y="106" fill="var(--text-3)" font-size="10">回踩不破 ZG · §8.3 剧本</text>
+
+    <!-- 1买/2买共用生死线 -->
+    <line x1="300" y1="245" x2="640" y2="245" stroke="var(--up)" stroke-width="1.8" stroke-dasharray="7 3"/>
+    <text x="644" y="240" fill="var(--up)" font-size="10.5" font-weight="700">1买 &amp; 2买的</text>
+    <text x="644" y="252" fill="var(--up)" font-size="10.5" font-weight="700">共同生死线</text>
+    <text x="644" y="264" fill="var(--text-3)" font-size="9.5">跌破 1买低点=全错</text>
+
+    <!-- 高低点抬高标注 -->
+    <path d="M330,243 L405,198" stroke="var(--up)" stroke-dasharray="4 3" stroke-width="1.3"/>
+
+    <!-- 1M 扳机提示 -->
+    <text x="330" y="292" fill="var(--text-3)" font-size="10" text-anchor="middle">↑ 三个买点的扳机全部相同：切 1M 走 §7.3（背驰+底分型+一笔破前高）</text>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="308" width="636" height="52" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="329" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">同一条流水线，变的只是 1H 资格：趋势将死 → 1买（试错） · 新趋势初生 → 2买（上主力仓）</text>
+    <text x="342" y="348" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">· 新趋势确认 → 3买（顺势）。三个买点是接力关系，不是三选一。</text>
+  </svg>
+  <figcaption><b>这张图最值钱的三个细节：</b>其一，<b>2 买的止损就是 1 买的低点</b>——图上那条虚线同时是两个买点的生死线，所以 1 买试错仓即使被扫，损失也被 2 买的重新入场机会对冲，这正是「1 买轻仓探路、2 买上主力」的接力逻辑（§7.1 表格最后一行说的"反手准备，必须等 5M 出现 2 买"就是它）。其二，判定 1 买用的是<b>趋势背驰</b>（两个下移中枢，§2.2 左图），判定 2 买回调结束用<b>盘整背驰即可</b>（回调内部自比）——在 2 买处要求趋势背驰是新手常见的刻舟求剑。其三，若 2 买的回调低点恰好也守住了刚形成的 5M 新中枢上沿，则 <b>2 买与 3 买重合（2+3 买）</b>，这是全体系中最强的买点信号，可以给到两者中更大的仓位额度。卖点完全对称：1H 趋势顶背驰 → 1 卖试错空，反抽不破 1 卖高点 → 2 卖主力空，反抽不回 ZD → 3 卖。</figcaption>
+</figure>
+
 <hr>
 
 <h2 id="s8"><span class="num">08</span>场景二 · 入场 · 止损 · 止盈</h2>
