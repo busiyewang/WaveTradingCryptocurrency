@@ -774,6 +774,45 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   区间套把「大级别的正确方向」和「小级别的低止损」合到了一起 —— <b>盈亏比就是这么来的</b>。合约交易者不用区间套，等于放弃了缠论 80% 的价值。
 </div>
 
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格走势</span><span><i style="background:var(--accent)"></i>背驰区域（逐级收敛）</span><span><i style="background:var(--up)"></i>精确买点与止损</span></div>
+  <svg viewBox="0 0 680 372" role="img" aria-label="区间套示意：周线到日线到1M，背驰区域逐级收窄">
+    <!-- ① 周线 -->
+    <text x="24" y="26" fill="var(--text-2)" font-size="12" font-weight="700">① 周线 · 发现底背驰 —— 只知道「底部区域到了」，可能还有 15% 空间</text>
+    <rect x="440" y="38" width="190" height="76" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <polyline points="60,44 130,70 190,56 260,86 320,72 400,98 460,86 520,106 580,94 620,102"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <text x="535" y="52" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">背驰区域（很宽）</text>
+    <line x1="440" y1="116" x2="62" y2="146" stroke="var(--accent)" stroke-dasharray="5 4" opacity=".55"/>
+    <line x1="630" y1="116" x2="638" y2="146" stroke="var(--accent)" stroke-dasharray="5 4" opacity=".55"/>
+
+    <!-- ② 日线 -->
+    <text x="24" y="140" fill="var(--text-2)" font-size="12" font-weight="700">② 日线 · 在周线那段时间窗口内，找同位置的底背驰 —— 区域收窄</text>
+    <rect x="468" y="152" width="162" height="72" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <polyline points="60,158 120,180 170,168 230,196 290,182 360,204 420,192 490,212 550,200 620,208"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <text x="549" y="166" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="middle">背驰区域（收窄）</text>
+    <line x1="468" y1="226" x2="62" y2="256" stroke="var(--accent)" stroke-dasharray="5 4" opacity=".55"/>
+    <line x1="630" y1="226" x2="638" y2="256" stroke="var(--accent)" stroke-dasharray="5 4" opacity=".55"/>
+
+    <!-- ③ 1M -->
+    <text x="24" y="250" fill="var(--text-2)" font-size="12" font-weight="700">③ 1M · 同一位置第三次出现背驰 —— 三级重合的这一刻，才是精确买点</text>
+    <polyline points="60,266 130,288 190,276 260,298 330,286 410,306 470,296 530,318 570,300 620,282"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <circle cx="530" cy="318" r="8" fill="none" stroke="var(--up)" stroke-width="2.5"/>
+    <line x1="60" y1="318" x2="620" y2="318" stroke="var(--up)" stroke-dasharray="4 4" stroke-width="1.1" opacity=".8"/>
+    <line x1="60" y1="328" x2="620" y2="328" stroke="var(--up)" stroke-width="1.6"/>
+    <text x="624" y="322" fill="var(--up)" font-size="10" font-weight="600">买点</text>
+    <text x="624" y="332" fill="var(--up)" font-size="10" font-weight="600">止损</text>
+    <path d="M300,318 L300,328" stroke="var(--up)" stroke-width="1.2"/>
+    <text x="296" y="342" fill="var(--up)" font-size="11" font-weight="700" text-anchor="middle">止损极小（0.3%–0.8%）：跌破这个 1M 低点即认错</text>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="352" width="636" height="0.1" fill="none"/>
+  </svg>
+  <figcaption><b>为什么这是最值钱的部分：</b>方向由<b>最大的那一级</b>负责（周线说底部到了，所以你做多是顺势的）；止损由<b>最小的那一级</b>负责（1M 的背驰低点离入场价只有零点几个百分点）。<b>单独用任何一级都做不到</b> —— 只看周线，止损要放到十几个百分点之外；只看 1M，你根本不知道这次反弹是抄底还是接刀。<b>盈亏比不是靠猜目标位猜出来的，是靠把止损压缩出来的。</b></figcaption>
+</figure>
+
 <h3 id="s2-5">2.5 本地分析工具的背驰判定与打分（代码实现口径）</h3>
 <p>配套的本地网页工具（chan.py <code>detect_beichi</code>）把上面的规则完整落成了代码。图上每一个 <b>⚡背驰标记和它的分数</b>，都是按下面的流程算出来的 —— 看懂这一节，就知道分数为什么是这个数、为什么某段"看着像背驰"却没有标记。</p>
 
@@ -1180,6 +1219,52 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   ③ <b>止损触发后当天不许在同一方向再开单</b>，除非出现全新的、更高级别的结构信号。连续在同一位置被打两次 = 你读错了结构。
 </div>
 
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格（5M）</span><span><i style="background:var(--accent)"></i>5M 中枢</span><span><i style="background:var(--up)"></i>止损候选位</span><span><i style="background:var(--text-3)"></i>时间止损</span></div>
+  <svg viewBox="0 0 680 300" role="img" aria-label="三种止损方案在同一结构上的位置对照">
+    <!-- 5M 中枢 -->
+    <rect x="120" y="130" width="200" height="65" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="220" y="167" fill="var(--accent)" font-size="11" font-weight="700" text-anchor="middle">5M 中枢</text>
+    <line x1="40" y1="130" x2="540" y2="130" stroke="var(--accent)" stroke-dasharray="4 4" stroke-width="1"/>
+    <line x1="40" y1="195" x2="540" y2="195" stroke="var(--accent)" stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="36" y="134" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="end">ZG</text>
+    <text x="36" y="199" fill="var(--accent)" font-size="10.5" font-weight="700" text-anchor="end">ZD</text>
+
+    <!-- 价格 -->
+    <polyline points="42,215 120,165 165,190 210,145 255,188 300,150 320,136 385,88 450,124 500,86 540,62"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="450" cy="124" r="7" fill="none" stroke="var(--up)" stroke-width="2.2"/>
+    <path d="M468,112 l6,10 l-12,0 z" fill="var(--up)"/>
+    <text x="476" y="108" fill="var(--up)" font-size="11" font-weight="700">开多</text>
+    <text x="352" y="104" fill="var(--text-2)" font-size="10.5" font-weight="600">离开段</text>
+    <text x="404" y="122" fill="var(--text-2)" font-size="10.5" font-weight="600">回踩不破 ZG</text>
+
+    <!-- 止损候选 ① 结构止损 -->
+    <line x1="40" y1="134" x2="540" y2="134" stroke="var(--up)" stroke-width="1.6" stroke-dasharray="7 3"/>
+    <text x="546" y="124" fill="var(--up)" font-size="10.5" font-weight="700">① 结构止损（首选）</text>
+    <text x="546" y="137" fill="var(--text-3)" font-size="10">1M 背驰低点 −0.15~0.3%</text>
+
+    <!-- 止损候选 ② 中枢止损 -->
+    <line x1="40" y1="205" x2="540" y2="205" stroke="var(--up)" stroke-width="1.6" stroke-dasharray="7 3"/>
+    <text x="546" y="202" fill="var(--up)" font-size="10.5" font-weight="700">② 中枢止损</text>
+    <text x="546" y="215" fill="var(--text-3)" font-size="10">ZD 下方 0.2%</text>
+
+    <!-- ③ 时间止损 -->
+    <line x1="516" y1="46" x2="516" y2="232" stroke="var(--text-3)" stroke-dasharray="3 4"/>
+    <text x="512" y="244" fill="var(--text-3)" font-size="10" text-anchor="end">③ 时间止损：入场后 12 根 5M（1 小时）仍未启动 → 无条件离场</text>
+
+    <!-- 取更低者 -->
+    <path d="M92,138 L92,201" stroke="var(--up)" stroke-width="1.4" marker-start="none"/>
+    <path d="M88,197 l4,8 l4,-8 z" fill="var(--up)"/>
+    <text x="100" y="176" fill="var(--up)" font-size="11" font-weight="700">取更低者</text>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="258" width="636" height="32" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="278" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">§8.3 的 min(1M背驰低点×0.997, P_zg×0.998) 就是这个意思：两条都算出来，用更低的那条</text>
+  </svg>
+  <figcaption><b>为什么"取最保守"不是胆小：</b>①②是<b>两种不同的错法</b>——跌破 1M 背驰低点，说明你这个「扳机」按错了；跌破中枢 ZD，说明整个<b>结构前提</b>没了。前者可能只是插针，后者才是真的读错。所以在两者都适用时取更低的那条，是为了不被「对的判断 + 错的止损位」洗掉。③是纯粹的机会成本控制：<b>结构没被破坏，但也没启动</b>，说明你入场太早，把钱和注意力还给市场。</figcaption>
+</figure>
+
 <h3 id="s8-2">8.2 止盈：分级出场</h3>
 <ol class="steps">
   <li><b>第一目标：前一个 5M 中枢的对侧 / 最近的前高</b><br>到达即平 <b>40%</b>，同时把剩余仓位的止损<b>移到成本价</b>（此单变成无风险）。</li>
@@ -1190,6 +1275,47 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
 <div class="callout">
   <span class="t">为什么第一目标就要平 40%</span>
   加密市场的假突破和回抽极其频繁。<b>先落袋一部分 + 止损移到成本，把「可能亏」变成「最差打平」</b>，这样你的心态才允许后面 60% 的仓位真正拿住趋势。绝大多数人拿不住盈利单，不是因为不懂结构，是因为怕回吐。</div>
+
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格</span><span><i style="background:var(--accent)"></i>1H 中枢（方向前提）</span><span><i style="background:var(--up)"></i>分级止盈位 / 止损</span></div>
+  <svg viewBox="0 0 680 320" role="img" aria-label="分级止盈示意：40/30/30 三级出场与止损上移">
+    <!-- 1H 中枢：方向前提 -->
+    <rect x="40" y="240" width="500" height="50" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <text x="290" y="261" fill="var(--accent)" font-size="11" font-weight="700" text-anchor="middle">1H 中枢（做多的前提：价格在其上方）</text>
+    <text x="290" y="277" fill="var(--accent)" font-size="10" text-anchor="middle">收盘跌回中枢内部 = 前提消失 → 不管盈亏、无条件全平</text>
+
+    <!-- 三级止盈位 -->
+    <line x1="40" y1="180" x2="540" y2="180" stroke="var(--up)" stroke-dasharray="6 4" stroke-width="1.2"/>
+    <line x1="40" y1="145" x2="540" y2="145" stroke="var(--up)" stroke-dasharray="6 4" stroke-width="1.2"/>
+    <line x1="40" y1="110" x2="540" y2="110" stroke="var(--up)" stroke-dasharray="6 4" stroke-width="1.2"/>
+    <text x="546" y="184" fill="var(--up)" font-size="10.5" font-weight="700">目标① 前高：平 40%</text>
+    <text x="546" y="196" fill="var(--text-3)" font-size="10">同时止损 → 成本价</text>
+    <text x="546" y="149" fill="var(--up)" font-size="10.5" font-weight="700">目标② 1M 顶背驰：平 30%</text>
+    <text x="546" y="114" fill="var(--up)" font-size="10.5" font-weight="700">目标③ 5M 顶背驰：平 30%</text>
+    <text x="546" y="126" fill="var(--text-3)" font-size="10">本单结束</text>
+
+    <!-- 价格路径 -->
+    <polyline points="48,246 85,228 115,205 140,215 175,180 205,196 245,145 275,162 320,110 355,132 395,142"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M85,222 l6,10 l-12,0 z" fill="var(--up)"/>
+    <text x="98" y="224" fill="var(--up)" font-size="11" font-weight="700">开多</text>
+    <circle cx="175" cy="180" r="7" fill="none" stroke="var(--up)" stroke-width="2.2"/>
+    <text x="175" y="167" fill="var(--up)" font-size="10.5" font-weight="700" text-anchor="middle">平 40%</text>
+    <circle cx="245" cy="145" r="7" fill="none" stroke="var(--up)" stroke-width="2.2"/>
+    <text x="245" y="132" fill="var(--up)" font-size="10.5" font-weight="700" text-anchor="middle">平 30%</text>
+    <circle cx="320" cy="110" r="7" fill="none" stroke="var(--up)" stroke-width="2.2"/>
+    <text x="320" y="97" fill="var(--up)" font-size="10.5" font-weight="700" text-anchor="middle">平 30%</text>
+
+    <!-- 止损轨迹：初始 → 触发目标① 后上移到成本 -->
+    <line x1="55" y1="252" x2="175" y2="252" stroke="var(--up)" stroke-width="1.8"/>
+    <text x="58" y="264" fill="var(--text-3)" font-size="10">初始止损（§8.1 取最保守）</text>
+    <path d="M175,252 L175,232" stroke="var(--up)" stroke-width="1.4"/>
+    <path d="M171,236 l4,-8 l4,8 z" fill="var(--up)"/>
+    <line x1="175" y1="230" x2="395" y2="230" stroke="var(--up)" stroke-width="1.8" stroke-dasharray="2 3"/>
+    <text x="240" y="224" fill="var(--up)" font-size="10" font-weight="600">止损上移到成本 → 此单最差打平</text>
+  </svg>
+  <figcaption><b>为什么是 40/30/30 而不是一把全平或死拿：</b>目标①落袋 40% 并把止损移到成本，此后这笔单<b>数学上不可能再亏</b>——这是你能拿住剩余 60% 的心理前提。目标②的 1M 顶背驰只说明「这一小段涨完了」（§2.2 的盘整背驰逻辑），所以只减不清；目标③的 5M 顶背驰才说明本级别走势到头。<b>唯一凌驾于三个目标之上的是底部那个蓝框</b>：收盘跌回 1H 中枢，方向前提没了，三个目标全部作废，直接清仓。</figcaption>
+</figure>
 
 <h3 id="s8-3">8.3 完整交易剧本（做多示例）</h3>
 <div class="card">
@@ -1258,6 +1384,60 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   <li><b>避开高波动时段开新仓</b>：CPI/FOMC 公布、大额清算集中时段、周末流动性枯竭期。</li>
   <li><b>不要在资金费率极端时逆向持仓过结算</b>：资金费率大幅为正 = 多头拥挤，插针洗多的动机很强。</li>
 </ul>
+
+<figure>
+  <div class="legend"><span><i style="background:var(--up)"></i>阳线</span><span><i style="background:var(--down)"></i>阴线</span><span><i style="background:var(--warn)"></i>流动性猎杀区</span><span><i style="background:var(--up)"></i>止损位对比</span></div>
+  <svg viewBox="0 0 680 310" role="img" aria-label="插针防护：止损放在前低下方1tick会被扫，多留0.15-0.3%可以躲过针尖">
+    <!-- 前低 -->
+    <line x1="150" y1="198" x2="620" y2="198" stroke="var(--grid)" stroke-dasharray="4 4"/>
+    <text x="624" y="202" fill="var(--text-3)" font-size="10">前低 / 整数关口</text>
+
+    <!-- 流动性猎杀区 -->
+    <rect x="40" y="198" width="500" height="30" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1" stroke-dasharray="5 3"/>
+    <text x="60" y="217" fill="var(--warn)" font-size="10.5" font-weight="700">流动性猎杀区：所有人都把止损放在「明显位置」下面一点点，针就扎到这里</text>
+
+    <!-- K 线：下跌 → 插针 → 收复 -->
+    <!-- 阴线下跌段 -->
+    <line x1="69" y1="70" x2="69" y2="120" stroke="var(--down)" stroke-width="1.5"/>
+    <rect x="60" y="78" width="18" height="34" fill="var(--down)"/>
+    <line x1="104" y1="98" x2="104" y2="148" stroke="var(--down)" stroke-width="1.5"/>
+    <rect x="95" y="104" width="18" height="36" fill="var(--down)"/>
+    <line x1="139" y1="126" x2="139" y2="176" stroke="var(--down)" stroke-width="1.5"/>
+    <rect x="130" y="132" width="18" height="36" fill="var(--down)"/>
+    <line x1="174" y1="156" x2="174" y2="198" stroke="var(--down)" stroke-width="1.5"/>
+    <rect x="165" y="160" width="18" height="32" fill="var(--down)"/>
+    <!-- 小幅反抽 -->
+    <line x1="209" y1="168" x2="209" y2="196" stroke="var(--up)" stroke-width="1.5"/>
+    <rect x="200" y="172" width="18" height="18" fill="var(--up)"/>
+    <!-- 插针：小实体 + 超长下影，针尖扎进猎杀区 -->
+    <line x1="244" y1="176" x2="244" y2="224" stroke="var(--up)" stroke-width="1.5"/>
+    <rect x="235" y="180" width="18" height="14" fill="var(--up)"/>
+    <text x="244" y="240" fill="var(--warn)" font-size="10.5" font-weight="700" text-anchor="middle">针尖</text>
+    <!-- 收复上涨 -->
+    <line x1="279" y1="140" x2="279" y2="190" stroke="var(--up)" stroke-width="1.5"/>
+    <rect x="270" y="146" width="18" height="38" fill="var(--up)"/>
+    <line x1="314" y1="108" x2="314" y2="158" stroke="var(--up)" stroke-width="1.5"/>
+    <rect x="305" y="114" width="18" height="38" fill="var(--up)"/>
+    <line x1="349" y1="78" x2="349" y2="128" stroke="var(--up)" stroke-width="1.5"/>
+    <rect x="340" y="84" width="18" height="38" fill="var(--up)"/>
+
+    <!-- 错误止损 -->
+    <line x1="40" y1="206" x2="540" y2="206" stroke="var(--down)" stroke-width="1.6" stroke-dasharray="7 3"/>
+    <path d="M424,200 l12,12 M436,200 l-12,12" stroke="var(--down)" stroke-width="2.2"/>
+    <text x="546" y="203" fill="var(--down)" font-size="10.5" font-weight="700">错误：前低下方 1 tick</text>
+    <text x="546" y="215" fill="var(--text-3)" font-size="10">被针扫掉，价格照涨</text>
+
+    <!-- 正确止损 -->
+    <line x1="40" y1="252" x2="540" y2="252" stroke="var(--up)" stroke-width="1.8"/>
+    <text x="546" y="249" fill="var(--up)" font-size="10.5" font-weight="700">正确：再往下留 0.15–0.3%</text>
+    <text x="546" y="261" fill="var(--text-3)" font-size="10">针尖够不到，仓位还在</text>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="272" width="636" height="32" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="292" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">插针专扫「显而易见」的位置 —— 同样的结构判断，止损多留 0.2%，结局完全不同</text>
+  </svg>
+  <figcaption><b>这张图画的是同一笔交易的两种结局：</b>结构判断完全正确（前低守住、随后真涨），但把止损放在前低下方 1 tick 的人，被那根下影线扫出场后眼睁睁看着行情启动；多留了 0.15–0.3% 的人躲过针尖、吃到整段。配合上面第一条：<b>用止损限价单</b>，即使被扫也不会成交在针尖的极端价位。注意这不是「止损越远越好」——多留的量是针对插针深度的经验值，且要计入 §9.1 的仓位公式里（止损距离变大 = 仓位相应变小）。</figcaption>
+</figure>
 
 <hr>
 
@@ -1533,6 +1713,76 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   别凭感觉。用 <b>成交量 ÷ 20 周期均量</b> 这个比值：<b>&gt; 1.8 = 明显放量；1.2–1.8 = 温和放量；0.8–1.2 = 正常；&lt; 0.6 = 明显缩量</b>。TradingView 上给 Volume 加一条 MA(20) 就能直接看。
 </div>
 
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格</span><span><i style="background:var(--down)"></i>跌日成交量</span><span><i style="background:var(--up)"></i>涨日成交量</span><span><i style="background:var(--text-3)"></i>横盘成交量</span><span><i style="background:var(--accent)"></i>箱体（中枢）</span></div>
+  <svg viewBox="0 0 680 344" role="img" aria-label="一轮完整行情周期上的量价组合地图：同样的组合在不同位置含义相反">
+    <!-- 阶段标注 -->
+    <text x="96" y="48" fill="var(--text-2)" font-size="10.5" font-weight="600">① 跌+量增：恐慌，别接刀</text>
+    <text x="150" y="242" fill="var(--text-2)" font-size="10.5" font-weight="600" text-anchor="middle">② 跌+量缩：抛压衰竭</text>
+    <text x="256" y="162" fill="var(--accent)" font-size="10.5" font-weight="600" text-anchor="middle">③ 横盘+温和放量：吸筹箱体（中枢）</text>
+    <text x="360" y="100" fill="var(--up)" font-size="10.5" font-weight="700" text-anchor="middle">④ 涨+量增：真突破 → 3买</text>
+    <text x="415" y="164" fill="var(--text-2)" font-size="10.5" font-weight="600" text-anchor="middle">⑤ 回调量缩：健康</text>
+    <text x="484" y="84" fill="var(--down)" font-size="10.5" font-weight="700" text-anchor="middle">⑥ 高位天量滞涨：派发 → 1卖</text>
+
+    <!-- 吸筹箱体 -->
+    <rect x="183" y="172" width="147" height="38" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+
+    <!-- 价格 -->
+    <polyline points="40,55 70,95 100,140 128,168 150,188 172,202 185,200 200,178 215,205 232,180 248,204 264,178 280,203 296,180 312,202 328,182 352,150 375,118 400,142 420,112 435,120 452,105 468,118 486,102 505,116 524,100 545,112 575,140 610,175 638,195"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <line x1="172" y1="202" x2="172" y2="224" stroke="var(--text-1)" stroke-width="1.5"/>
+
+    <!-- 20 周期均量参考线 -->
+    <line x1="40" y1="264" x2="640" y2="264" stroke="var(--text-3)" stroke-dasharray="5 4" stroke-width="1.1"/>
+    <text x="644" y="268" fill="var(--text-3)" font-size="9.5">20 周期均量</text>
+    <line x1="40" y1="290" x2="640" y2="290" stroke="var(--border-strong)" stroke-width="1"/>
+
+    <!-- ① 恐慌放量（跌，绿） -->
+    <g fill="var(--down)" opacity=".8">
+      <rect x="44" y="256" width="10" height="34"/><rect x="60" y="248" width="10" height="42"/>
+      <rect x="76" y="242" width="10" height="48"/><rect x="92" y="246" width="10" height="44"/>
+      <rect x="108" y="252" width="10" height="38"/><rect x="124" y="260" width="10" height="30"/>
+    </g>
+    <!-- ② 缩量末跌 -->
+    <g fill="var(--down)" opacity=".45">
+      <rect x="142" y="274" width="10" height="16"/><rect x="158" y="279" width="10" height="11"/><rect x="174" y="281" width="10" height="9"/>
+    </g>
+    <!-- ③ 温和放量（横盘，灰） -->
+    <g fill="var(--text-3)" opacity=".55">
+      <rect x="190" y="278" width="10" height="12"/><rect x="206" y="276" width="10" height="14"/>
+      <rect x="222" y="277" width="10" height="13"/><rect x="238" y="274" width="10" height="16"/>
+      <rect x="254" y="275" width="10" height="15"/><rect x="270" y="272" width="10" height="18"/>
+      <rect x="286" y="273" width="10" height="17"/><rect x="302" y="270" width="10" height="20"/>
+      <rect x="318" y="271" width="10" height="19"/>
+    </g>
+    <!-- ④ 放量突破（涨，红） -->
+    <g fill="var(--up)" opacity=".85">
+      <rect x="340" y="250" width="10" height="40"/><rect x="356" y="244" width="10" height="46"/><rect x="372" y="248" width="10" height="42"/>
+    </g>
+    <!-- ⑤ 缩量回调 -->
+    <g fill="var(--up)" opacity=".4">
+      <rect x="392" y="278" width="10" height="12"/><rect x="408" y="281" width="10" height="9"/>
+    </g>
+    <!-- ⑥ 高位天量（涨，红） -->
+    <g fill="var(--up)" opacity=".7">
+      <rect x="424" y="254" width="10" height="36"/><rect x="440" y="248" width="10" height="42"/>
+      <rect x="456" y="244" width="10" height="46"/><rect x="472" y="246" width="10" height="44"/>
+      <rect x="488" y="242" width="10" height="48"/><rect x="504" y="245" width="10" height="45"/>
+      <rect x="520" y="243" width="10" height="47"/><rect x="536" y="247" width="10" height="43"/>
+    </g>
+    <!-- 跌破后的下跌量 -->
+    <g fill="var(--down)" opacity=".7">
+      <rect x="560" y="262" width="10" height="28"/><rect x="576" y="256" width="10" height="34"/>
+      <rect x="592" y="260" width="10" height="30"/><rect x="608" y="264" width="10" height="26"/><rect x="624" y="268" width="10" height="22"/>
+    </g>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="306" width="636" height="32" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="326" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">同样的量价组合，位置不同含义相反 —— 先定位（底部 / 中途 / 高位），再查 §12.1 的表</text>
+  </svg>
+  <figcaption><b>把 §12.1 的十行表摊在一轮周期上看：</b>①和⑥都是「量增」，一个是恐慌一个是派发；②和⑤都是「量缩」，一个是抛压衰竭一个是健康回调——<b>量价组合本身不定多空，位置才定</b>。几个关键锚点：②的长下影 + 缩量是底背驰的旁证（§2.1 表格里的成交量行）；③的箱体就是缠论的中枢，温和放量说明有人在里面持续换手；④突破那三根量柱要明显站上虚线（20 周期均量的 1.2 倍以上），量不够的突破就是表里那行「接近前高 + 量缩 = 假突破风险高」；⑥天量滞涨配合顶背驰 = 1 卖。虚线就是判定放量/缩量的客观标尺，别用眼睛猜。</figcaption>
+</figure>
+
 <h3 id="s12-2">12.2 币圈专属的四个"主力探测器"</h3>
 <div class="grid2">
 <div class="card" style="border-left:3px solid var(--lv-1)">
@@ -1578,6 +1828,48 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
 </div>
 </div>
 
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格</span><span><i style="background:var(--lv-4)"></i>CVD</span><span><i style="background:var(--lv-2)"></i>OI 未平仓量</span></div>
+  <svg viewBox="0 0 680 336" role="img" aria-label="两种假涨的仪表盘签名：价格新高CVD不新高的诱多，与价涨OI降的轧空">
+    <!-- ===== 左：CVD 诱多 ===== -->
+    <text x="36" y="20" fill="var(--warn)" font-size="13" font-weight="700">① 价格新高 + CVD 不新高 = 诱多</text>
+
+    <line x1="40" y1="80" x2="250" y2="80" stroke="var(--grid)" stroke-dasharray="4 4"/>
+    <text x="254" y="84" fill="var(--text-3)" font-size="10">前高</text>
+    <polyline points="40,155 75,80 105,122 145,58 180,100 215,135"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="75" cy="80" r="5" fill="none" stroke="var(--text-1)" stroke-width="1.6"/>
+    <circle cx="145" cy="58" r="6" fill="none" stroke="var(--warn)" stroke-width="2"/>
+    <text x="145" y="44" fill="var(--warn)" font-size="10.5" font-weight="700" text-anchor="middle">新高</text>
+    <text x="222" y="126" fill="var(--text-3)" font-size="10">随后回落</text>
+
+    <text x="40" y="212" fill="var(--lv-4)" font-size="10.5" font-weight="700">CVD 高点反而降低 → 没有真实买盘</text>
+    <polyline points="40,265 75,225 105,250 145,238 180,262 215,272"
+              fill="none" stroke="var(--lv-4)" stroke-width="2"/>
+    <circle cx="75" cy="225" r="3.5" fill="var(--lv-4)"/><circle cx="145" cy="238" r="3.5" fill="var(--lv-4)"/>
+    <line x1="75" y1="225" x2="145" y2="238" stroke="var(--lv-4)" stroke-dasharray="4 3" stroke-width="1.4"/>
+
+    <!-- ===== 中缝 ===== -->
+    <line x1="342" y1="10" x2="342" y2="290" stroke="var(--border)" stroke-dasharray="6 5"/>
+
+    <!-- ===== 右：OI 轧空 ===== -->
+    <text x="356" y="20" fill="var(--warn)" font-size="13" font-weight="700">② 价涨 + OI 持续下降 = 轧空</text>
+
+    <polyline points="360,150 400,118 435,128 475,92 510,102 550,68 590,80 632,52"
+              fill="none" stroke="var(--text-1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="596" y="46" fill="var(--text-2)" font-size="10.5" font-weight="600">一路上涨</text>
+
+    <text x="360" y="212" fill="var(--lv-2)" font-size="10.5" font-weight="700">OI 一路下降 → 是空头平仓买回在推，新钱没进场</text>
+    <polyline points="360,225 400,231 440,238 480,245 520,252 560,259 600,265 632,270"
+              fill="none" stroke="var(--lv-2)" stroke-width="2"/>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="298" width="636" height="32" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="318" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">K 线上都是「涨」—— 但仪表盘说没有新钱进场：这种涨不追，更不能重仓</text>
+  </svg>
+  <figcaption><b>两种「假涨」共同的病根：涨价没有新钱。</b>左边：价格创了新高，CVD（累计主动买卖差）的高点却比上次低——推高价格的不是持续的真实买单，多半是拉盘诱多或逼空，新高后往往快速回落。右边：价格一路涨但 OI 一路降——每一笔"买入"其实是空头认输平仓，仓位在退出而不是进场，燃料烧完反弹就结束。<b>健康的涨是反过来的</b>：价格新高 + CVD 同步新高、价涨 + OI 同步上升（§12.2 卡片里的绿色标签行）。这两张仪表盘不用来找入场点，用来<b>否决</b>：缠论结构看着像 3 买，但 CVD/OI 是这两种签名之一时，降仓位或放弃。</figcaption>
+</figure>
+
 <h3 id="s12-3">12.3 主力吸筹 vs 主力派发：特征对照</h3>
 <div class="tablewrap">
 <table>
@@ -1599,6 +1891,75 @@ footer{border-top:1px solid var(--border); margin-top:60px; padding:26px 0 60px;
   <span class="t">别把"主力"神化</span>
   加密市场没有单一庄家控盘 BTC（市值太大）。这里说的"主力"是<b>大额资金的合力</b>：机构、ETF、矿工、做市商、巨鲸。<b>你能观测的是它们留下的痕迹（量、OI、链上流向），不是它们的意图。</b>所有"主力成本"都是<b>估算区间</b>，不是精确数字。任何声称知道主力具体成本价的说法都不可信。
 </div>
+
+<figure>
+  <div class="legend"><span><i style="background:var(--text-1)"></i>价格</span><span><i style="background:var(--accent)"></i>箱体（大级别中枢雏形）</span><span><i style="background:var(--text-3)"></i>成交量</span><span><i style="background:var(--lv-4)"></i>CVD</span></div>
+  <svg viewBox="0 0 680 360" role="img" aria-label="主力吸筹与派发对照：同样是横盘箱体，量、CVD、链上流向完全相反">
+    <!-- ===== 左：吸筹 ===== -->
+    <text x="40" y="20" fill="var(--up)" font-size="13" font-weight="700">主力吸筹 · 底部箱体（之后向上）</text>
+    <rect x="40" y="78" width="260" height="44" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <polyline points="30,40 58,74 80,112 100,84 120,116 140,88 160,114 180,86 200,116 220,90 240,114 260,92 280,108 298,98"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <line x1="120" y1="116" x2="120" y2="134" stroke="var(--text-1)" stroke-width="1.5"/>
+    <line x1="200" y1="116" x2="200" y2="136" stroke="var(--text-1)" stroke-width="1.5"/>
+    <line x1="240" y1="114" x2="240" y2="132" stroke="var(--text-1)" stroke-width="1.5"/>
+    <text x="200" y="150" fill="var(--text-2)" font-size="10" text-anchor="middle">下影线频繁（洗盘不破位）</text>
+    <text x="170" y="164" fill="var(--accent)" font-size="10" text-anchor="middle">箱体持续数月（吸筹比派发慢）</text>
+
+    <!-- 左成交量：整体萎缩 + 偶尔放量 -->
+    <line x1="40" y1="210" x2="300" y2="210" stroke="var(--border-strong)" stroke-width="1"/>
+    <g fill="var(--text-3)" opacity=".5">
+      <rect x="56" y="174" width="12" height="36"/><rect x="76" y="180" width="12" height="30"/>
+      <rect x="96" y="184" width="12" height="26"/><rect x="116" y="190" width="12" height="20"/>
+      <rect x="136" y="194" width="12" height="16"/><rect x="156" y="198" width="12" height="12"/>
+      <rect x="176" y="200" width="12" height="10"/><rect x="216" y="200" width="12" height="10"/>
+      <rect x="236" y="202" width="12" height="8"/><rect x="256" y="201" width="12" height="9"/><rect x="276" y="203" width="12" height="7"/>
+    </g>
+    <rect x="196" y="180" width="12" height="30" fill="var(--up)" opacity=".8"/>
+    <text x="170" y="224" fill="var(--text-3)" font-size="10" text-anchor="middle">量缩到极致，偶尔放量长下影（对应 x 位置）</text>
+
+    <!-- 左 CVD：上行 -->
+    <polyline points="40,268 90,262 150,255 210,247 270,241 300,238" fill="none" stroke="var(--lv-4)" stroke-width="2"/>
+    <text x="170" y="284" fill="var(--lv-4)" font-size="10.5" font-weight="600" text-anchor="middle">CVD 持续上行：价格没涨，买方却在持续吃单</text>
+    <text x="170" y="300" fill="var(--text-3)" font-size="10" text-anchor="middle">交易所余额↓ · OI 低位缓升 · 无人讨论</text>
+
+    <!-- ===== 中缝 ===== -->
+    <line x1="342" y1="10" x2="342" y2="306" stroke="var(--border)" stroke-dasharray="6 5"/>
+
+    <!-- ===== 右：派发 ===== -->
+    <text x="360" y="20" fill="var(--down)" font-size="13" font-weight="700">主力派发 · 顶部箱体（之后向下）</text>
+    <rect x="380" y="56" width="260" height="52" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
+    <polyline points="352,170 375,120 392,66 410,100 430,64 450,98 470,62 490,96 510,66 530,100 550,64 570,96 590,70 610,98 630,80"
+              fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linejoin="round"/>
+    <line x1="470" y1="62" x2="470" y2="44" stroke="var(--text-1)" stroke-width="1.5"/>
+    <line x1="550" y1="64" x2="550" y2="46" stroke="var(--text-1)" stroke-width="1.5"/>
+    <line x1="590" y1="70" x2="590" y2="52" stroke="var(--text-1)" stroke-width="1.5"/>
+    <text x="530" y="38" fill="var(--text-2)" font-size="10" text-anchor="middle">上影线频繁（冲高回落）</text>
+    <text x="510" y="124" fill="var(--accent)" font-size="10" text-anchor="middle">箱体数周~数月</text>
+
+    <!-- 右成交量：天量但滞涨 -->
+    <line x1="380" y1="210" x2="640" y2="210" stroke="var(--border-strong)" stroke-width="1"/>
+    <g fill="var(--down)" opacity=".55">
+      <rect x="396" y="184" width="12" height="26"/><rect x="416" y="178" width="12" height="32"/>
+      <rect x="436" y="172" width="12" height="38"/><rect x="456" y="168" width="12" height="42"/>
+      <rect x="476" y="164" width="12" height="46"/><rect x="496" y="166" width="12" height="44"/>
+      <rect x="516" y="170" width="12" height="40"/><rect x="536" y="164" width="12" height="46"/>
+      <rect x="556" y="168" width="12" height="42"/><rect x="576" y="172" width="12" height="38"/>
+      <rect x="596" y="166" width="12" height="44"/><rect x="616" y="170" width="12" height="40"/>
+    </g>
+    <text x="510" y="224" fill="var(--text-3)" font-size="10" text-anchor="middle">天量但价格滞涨（出货需要对手盘接）</text>
+
+    <!-- 右 CVD：下行 -->
+    <polyline points="380,238 430,243 490,251 550,259 610,265 640,268" fill="none" stroke="var(--lv-4)" stroke-width="2"/>
+    <text x="510" y="284" fill="var(--lv-4)" font-size="10.5" font-weight="600" text-anchor="middle">CVD 持续下行：价格没跌，卖方在持续出货</text>
+    <text x="510" y="300" fill="var(--text-3)" font-size="10" text-anchor="middle">交易所净流入↑ · OI 高位暴涨 + 费率极正 · 全网狂热</text>
+
+    <!-- 底部结论 -->
+    <rect x="24" y="316" width="636" height="34" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.2"/>
+    <text x="342" y="337" fill="var(--warn)" font-size="12" font-weight="700" text-anchor="middle">两边价格形态几乎一样（横盘箱体）—— 分辨靠量、CVD、链上流向，缠论对应：中枢 + 背驰 + 3买/3卖</text>
+  </svg>
+  <figcaption><b>看图的关键在「矛盾」：</b>吸筹的矛盾是<b>价格不涨但 CVD 一直向上</b>——有人在箱体里持续吃掉恐慌盘，量缩说明散户筹码快换完了；派发的矛盾是<b>天量却滞涨、价格不跌但 CVD 一直向下</b>——只有出货才需要这么大的对手盘。单看价格 K 线，两个箱体几乎无法区分，这正是 §12.3 表格里那些「探测器」存在的意义。用缠论语言收口：两者都是大级别中枢，<b>之后跟随底/顶背驰与 3 买/3 卖的方向，才是箱体的最终答案</b>——痕迹帮你提前倾向一边，但仓位仍然只在结构信号出现后才给。</figcaption>
+</figure>
 
 <hr>
 
