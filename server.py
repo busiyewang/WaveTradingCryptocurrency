@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request, send_from_directory
 import chan
 import decision
 import indicators
+import multilevel
 import patterns
 
 OKX_BASE = "https://www.okx.com"
@@ -130,6 +131,35 @@ def _get_data(inst: str, bar: str, force: bool):
     data = build_payload(inst, bar)
     _cache[key] = {"ts": time.time(), "data": data}
     return data
+
+
+@app.get("/api/multi")
+def api_multi():
+    """多级别联动:大级别定方向+关键位,小级别找确认(区间套)。"""
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    big = request.args.get("big", "4H")
+    small = request.args.get("small") or multilevel.SMALL_DEFAULT.get(big, "15m")
+    force = request.args.get("force", "0") == "1"
+    if big not in VALID_BARS or small not in VALID_BARS:
+        return jsonify({"code": 1, "msg": f"不支持的周期: {big}/{small}"}), 400
+    if multilevel.BAR_RANK[small] >= multilevel.BAR_RANK[big]:
+        return jsonify({"code": 1, "msg": "小级别必须低于大级别"}), 400
+    try:
+        big_data = _get_data(inst, big, force)
+        small_data = _get_data(inst, small, force)
+        multi = multilevel.analyze(big_data, small_data, big, small)
+    except requests.RequestException as e:
+        return jsonify({"code": 1, "msg": f"网络错误: {e}"}), 502
+    except RuntimeError as e:
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    return jsonify({"code": 0, "inst": inst, "big_bar": big, "small_bar": small,
+                    "fetched_at": int(time.time() * 1000),
+                    "big": big_data, "small": small_data, "multi": multi})
+
+
+@app.get("/multi")
+def multi_page():
+    return send_from_directory("static", "multi.html")
 
 
 @app.get("/api/instruments")

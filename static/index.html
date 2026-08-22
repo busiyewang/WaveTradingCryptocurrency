@@ -18,11 +18,12 @@
   }
   .group { display: flex; align-items: center; gap: 4px; }
   .sep { width: 1px; height: 20px; background: #2a2e35; margin: 0 4px; }
-  button, select, input[type=text] {
+  button, select, input[type=text], a.btn {
     background: #171b20; color: #c9d1d9; border: 1px solid #2a2e35;
     border-radius: 4px; padding: 4px 10px; font-size: 13px; cursor: pointer;
-    outline: none;
+    outline: none; text-decoration: none; display: inline-block;
   }
+  a.btn:hover { border-color: #4c8dff; }
   input[type=text] { width: 150px; cursor: text; }
   button:hover { border-color: #4c8dff; }
   button.active { background: #1d3a5f; border-color: #4c8dff; color: #7db8ff; }
@@ -94,6 +95,8 @@
     <button id="goBtn">切换</button>
     <span class="sep"></span>
     <div class="group" id="periods"></div>
+    <span class="sep"></span>
+    <a class="btn" href="/multi" title="大级别定方向,小级别找确认(区间套)">🔭 多级别</a>
     <span class="sep"></span>
     <button id="refreshBtn" class="primary">⟳ 刷新</button>
     <label class="chk"><input type="checkbox" id="ckAuto" checked> 每分钟自动刷新</label>
