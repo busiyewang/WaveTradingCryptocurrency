@@ -144,3 +144,35 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
 - 前端:开关 ckDl「指标背离」,图上青(#1b7c83)买/洋红(#bf3989)卖标签
   offset 34,「隐」前缀=隐藏背离;面板买卖点表与 bsp 合并按 k_idx 排序。
 - 手册缠论口径(面积比<0.7 等)未动,背离是并行的补充信号层。
+
+## 11. 多级别联动页(2026-08 新增,/multi)
+
+- multilevel.py:`analyze(big_payload, small_payload, big_bar, small_bar)`。
+  关键位 = 大级别 ZG/ZD + 前高/前低笔端点(结构位)+ EMA20/40(辅助,内部自算);
+  容差 tol = 0.6×大级别近20根平均振幅;小级别活跃信号(口径同 decision:位于
+  最近两个确认笔端点范围内的背驰/背离/买卖点)落在某关键位±tol 内才「验证」,
+  否则标杂波。硬过滤与 decision.py 一致:方向冲突禁止、盈亏比<2 观望给
+  better_entry。刹车印(持仓检查):①反向常规背离/背驰(隐藏背离不算)
+  ②放量滞涨(量≥3×前5均量+小实体/长影)③连续两根收盘破小级别EMA20(只有③
+  算确认)→ 情况A/B/C。BAR_RANK/SMALL_DEFAULT 供路由校验与默认搭配。
+- server.py:`GET /api/multi?inst=&big=4H&small=15m&force=` → {big,small,multi}
+  (big/small 是完整 build_payload 数据,走同一 _cache);small 省略按
+  SMALL_DEFAULT;small rank ≥ big rank 返回 400。`GET /multi` → multi.html。
+- 前端 static/multi.html + multi.js:双图各带 EMA/VOL/MACD(overlay 注册代码
+  与 app.js 同款,levelLine 新增:bounding.width 全宽虚线+右侧标签,须
+  ignoreEvent);关键位横线两张图都画,testing 的加粗+「◀测试中」。
+  币种经 localStorage('chan_inst') 与主页互通;刷新增量逻辑同 app.js
+  (per-chart 记 key/lastList)。级别下拉不合法组合自动纠正。
+
+补充(§6 代理陷阱,2026-08 实测):macOS 上 python urllib 即使清了 env 也会读
+**系统级代理设置**(getproxies),访问 127.0.0.1 端口会 502 —— 必须
+`build_opener(ProxyHandler({}))`;websocket-client 连 CDP 则要
+`env -i PATH.. HOME..` 起进程 + `origin="http://127.0.0.1:9333"`,二者缺一
+都是 "Connection to remote host was lost"。
+
+§11 补充(同日优化):①刹车印视角跟随大级别方向(_brakes 收 big_dir,
+neutral 才按小级别笔方向)——否则大级别涨、小级别回调时误显示"持空仓检查";
+②目标位结构位优先(_pick_target:structure 优先,MA 兜底),防止 EMA 在现价
+上方一点点时盈亏比被算虚小;③关键位相距<0.25×tol 自动合并(结构位优先保留,
+名称用 ≈ 连接);④_breakout=场景三:小级别放量(≥2×前5均量)K线收盘穿越
+关键位 → res["breakout"] 仅作观察信号展示,明示等大级别收盘确认,绝不给入场。

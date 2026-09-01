@@ -2,7 +2,7 @@
 (function () {
   const PERIODS = ['1m', '5m', '15m', '1H', '4H', '1D', '1W'];
   const state = {
-    inst: 'ETH-USDT-SWAP',
+    inst: localStorage.getItem('chan_inst') || 'ETH-USDT-SWAP',
     bar: '4H',
     data: null,
     loading: false,
@@ -169,6 +169,7 @@
     document.querySelectorAll('#periods button').forEach((b) => b.classList.toggle('active', b.dataset.bar === state.bar));
     $('title').textContent = state.inst.replace('-SWAP', ' 永续');
     document.title = `${state.inst} ${state.bar} · 缠论分析`;
+    localStorage.setItem('chan_inst', state.inst);  // 与多级别页共享当前币种
   }
 
   $('goBtn').onclick = () => {

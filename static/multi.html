@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多级别联动 · 缠论分析</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0b0e11; color: #c9d1d9;
+    font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #toolbar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid #1e2329; flex: none;
+  }
+  .group { display: flex; align-items: center; gap: 4px; }
+  .sep { width: 1px; height: 20px; background: #2a2e35; margin: 0 4px; }
+  button, select, input[type=text], a.btn {
+    background: #171b20; color: #c9d1d9; border: 1px solid #2a2e35;
+    border-radius: 4px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+    outline: none; text-decoration: none; display: inline-block;
+  }
+  input[type=text] { width: 150px; cursor: text; }
+  button:hover, a.btn:hover { border-color: #4c8dff; }
+  button.active { background: #1d3a5f; border-color: #4c8dff; color: #7db8ff; }
+  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button.primary:disabled { opacity: .5; cursor: wait; }
+  label.chk { display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; color: #8b949e; }
+  label.chk input { accent-color: #1f6feb; }
+  label.sel { display: flex; align-items: center; gap: 4px; color: #8b949e; font-size: 12px; }
+  #status { color: #8b949e; font-size: 12px; }
+  #status.err { color: #f6465d; }
+  #title { font-weight: 700; font-size: 15px; color: #e6edf3; }
+
+  #verdict {
+    flex: none; display: flex; align-items: center; gap: 16px;
+    padding: 8px 14px; border-bottom: 1px solid #1e2329;
+    border-left: 4px solid #6e7681; background: #0f1318;
+    overflow-x: auto; white-space: nowrap;
+  }
+  #verdict .act { font-size: 17px; font-weight: 700; flex: none; }
+  #verdict .blk { flex: none; line-height: 1.35; }
+  #verdict .blk .lbl { color: #8b949e; font-size: 11px; display: block; }
+  #verdict .warn { color: #d29922; }
+
+  #charts { flex: 1 1 auto; min-height: 0; display: flex; }
+  .chartBox { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1e2329; }
+  .chartBox:last-child { border-right: none; }
+  .chartHead {
+    flex: none; padding: 4px 10px; font-size: 12px; color: #8b949e;
+    border-bottom: 1px solid #1e2329; background: #0f1318;
+  }
+  .chartHead b { color: #e6edf3; }
+  .chartEl { flex: 1 1 auto; min-height: 0; }
+
+  #panel {
+    flex: none; height: 235px; border-top: 1px solid #1e2329;
+    display: flex; gap: 0; overflow-x: auto; overflow-y: hidden;
+  }
+  .col { flex: 1; min-width: 300px; padding: 10px 14px; overflow-y: auto; border-right: 1px solid #1e2329; }
+  .col:last-child { border-right: none; }
+  .col h3 { font-size: 13px; color: #e6edf3; margin-bottom: 8px; font-weight: 600; }
+  .kv { display: flex; justify-content: space-between; padding: 2px 0; }
+  .kv .k { color: #8b949e; }
+  .up { color: #2ebd85; } .down { color: #f6465d; } .flat { color: #8b949e; }
+  .card { background: #12161b; border: 1px solid #2a2e35; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: #8b949e; font-weight: 400; padding: 2px 4px; border-bottom: 1px solid #2a2e35; }
+  td { padding: 3px 4px; border-bottom: 1px solid #171b20; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: #171b20; }
+  tr.hot td { background: rgba(210,153,34,0.08); }
+  .tag { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 11px; color: #fff; white-space: nowrap; }
+  .muted { color: #6e7681; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <a class="btn" href="/">← 单级别</a>
+    <span id="title">多级别联动</span>
+    <span class="sep"></span>
+    <div class="group" id="coins"></div>
+    <input type="text" id="instInput" placeholder="自定义如 PEPE-USDT-SWAP" />
+    <button id="goBtn">切换</button>
+    <span class="sep"></span>
+    <label class="sel">大级别 <select id="bigSel"></select></label>
+    <label class="sel">小级别 <select id="smallSel"></select></label>
+    <span class="sep"></span>
+    <button id="refreshBtn" class="primary">⟳ 刷新</button>
+    <label class="chk"><input type="checkbox" id="ckAuto" checked> 每分钟自动刷新</label>
+    <span id="status"></span>
+    <span style="flex:1"></span>
+    <div class="group">
+      <label class="chk"><input type="checkbox" id="ckBi" checked> 笔</label>
+      <label class="chk"><input type="checkbox" id="ckZs" checked> 中枢</label>
+      <label class="chk"><input type="checkbox" id="ckSig" checked> 信号标注</label>
+      <label class="chk"><input type="checkbox" id="ckLv" checked> 关键位线</label>
+    </div>
+  </div>
+  <div id="verdict"><span class="muted">多级别决策加载中…</span></div>
+  <div id="charts">
+    <div class="chartBox">
+      <div class="chartHead" id="headBig">大级别 · 定方向 / 找关键位</div>
+      <div class="chartEl" id="chartBig"></div>
+    </div>
+    <div class="chartBox">
+      <div class="chartHead" id="headSmall">小级别 · 找确认(横线 = 大级别关键位)</div>
+      <div class="chartEl" id="chartSmall"></div>
+    </div>
+  </div>
+  <div id="panel">
+    <div class="col" id="colDir"><h3>大级别 · 方向与关键位</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colSig"><h3>小级别 · 确认信号</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colBrake"><h3>刹车印 · 持仓检查</h3><div class="muted">加载中…</div></div>
+  </div>
+  <script src="/static/klinecharts.min.js"></script>
+  <script src="/static/multi.js"></script>
+</body>
+</html>
