@@ -311,14 +311,16 @@
     if ($('ckBc').checked) {
       ch.beichi.forEach((b) => {
         const unlocked = b.locked === false;
-        const bg = unlocked ? 'rgba(154,103,0,0.55)' : '#9a6700';
+        const wide = b.struct_ok === false; // 宽口径:附近无紧邻中枢,可靠度较低
+        const bg = (unlocked || wide) ? 'rgba(154,103,0,0.55)' : '#9a6700';
         const tail = unlocked ? ' ?' : '';
+        const pre = wide ? '宽' : '';
         mk({
           name: 'chanMark',
           points: [{ timestamp: b.ts, value: b.price }],
           extendData: b.dir === 'down'
-            ? { text: `⚡底背驰 ${b.area_ratio}${tail}`, pos: 'below', bg, textColor: '#fff', offset: 20 }
-            : { text: `⚡顶背驰 ${b.area_ratio}${tail}`, pos: 'above', bg, textColor: '#fff', offset: 20 },
+            ? { text: `⚡${pre}底背驰 ${b.area_ratio}${tail}`, pos: 'below', bg, textColor: '#fff', offset: 20 }
+            : { text: `⚡${pre}顶背驰 ${b.area_ratio}${tail}`, pos: 'above', bg, textColor: '#fff', offset: 20 },
         });
       });
     }
@@ -472,13 +474,18 @@
       const lockTag = b.locked === false
         ? '<span class="tag" style="background:#d29922">未锁定·或移动</span>'
         : '<span class="tag" style="background:#2a2e35;color:#8b949e">已锁定</span>';
+      const wideTag = b.struct_ok === false
+        ? '<span class="tag" style="background:#57534e">宽口径</span>' : '';
+      const wideNote = b.struct_ok === false
+        ? '<div class="muted" style="margin-top:2px">宽口径:附近无紧邻中枢,仅为相邻同向笔的动能衰减,可靠度低于标准背驰(评分已×0.85)</div>' : '';
       bcHtml += `<div class="card">
-        <div class="kv"><span class="${buy ? 'up' : 'down'}" style="font-weight:600">${b.kind === 'trend' ? '趋势' : '盘整'}${buy ? '底' : '顶'}背驰 ${lockTag}</span>
+        <div class="kv"><span class="${buy ? 'up' : 'down'}" style="font-weight:600">${b.kind === 'trend' ? '趋势' : '盘整'}${buy ? '底' : '顶'}背驰 ${lockTag}${wideTag}</span>
         <span class="muted">${fmtTs(b.ts)}</span></div>
         ${kv('价格', fmtP(b.price))}
         ${kv('MACD 面积比', `<b>${b.area_ratio}</b> <span class="muted">(&lt;0.7 有效)</span>`)}
         ${kv('评分', `<b style="color:${scoreColor}">${b.score}</b> · ${lvTxt} <span class="muted">(区间套未验证)</span>`)}
         <div class="scorebar"><div style="width:${Math.min(b.score, 100)}%;background:${scoreColor}"></div></div>
+        ${wideNote}
       </div>`;
     });
     /* 形态卡片(收敛三角形) */

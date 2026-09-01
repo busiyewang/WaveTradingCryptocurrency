@@ -5,6 +5,10 @@
 - 本级别定买点:最近的一二三类买卖点是否仍"活跃"(位于最近两个笔端点范围内);
 - 指标确认:KDJ 金叉死叉、RSI 背离、量价组合作为确认票;
 - 冲突规则:信号方向与大级别方向相反 → 禁止操作(观望);
+- 失效规则:现价已越过信号点的结构止损位(做多跌破信号低点/做空突破信号高点,
+  含 0.2% 缓冲)→ 信号作废,观望;
+- 未锁定信号(端点仍可能随新K线重绘)质量分 ×0.7 降权,并附警告;
+- 无结构目标 → 盈亏比无法核算,硬约束(≥1:2)无从满足 → 观望;
 - 质量分 q = 方向强度×0.4 + 信号质量×0.4 + 确认度×0.2,映射仓位:
   q≥0.85→100%、≥0.7→70%、≥0.5→50%、≥0.35→30%、否则观望;
 - 止损:结构止损(信号点下方 0.2%)与中枢止损(ZD 下方 0.2%)取更保守(离入场更近)者,
@@ -93,6 +97,20 @@ def decide(cur, hi, bar, hi_bar):
                           f"但{hi_bar}大级别方向相反({hd['desc']})。"
                           f"手册规定:信号与大级别冲突,禁止操作。"}
 
+    # 价格失效:现价已越过信号点的结构止损位 → 买/卖点被击穿即作废
+    #(做多:跌破信号低点;做空:突破信号高点。此时所有止损都在入场价的错误一侧)
+    entry = live
+    if side == "long" and entry <= active["price"] * (1 - STOP_BUFFER):
+        return {**base, "action": "wait", "q": 0, "signal": active,
+                "reason": f"信号 {active['type']}@{active['price']} 已失效:"
+                          f"现价 {entry} 跌破信号低点(含0.2%缓冲)。"
+                          f"买点被击穿即作废,等待新结构形成再决策。"}
+    if side == "short" and entry >= active["price"] * (1 + STOP_BUFFER):
+        return {**base, "action": "wait", "q": 0, "signal": active,
+                "reason": f"信号 {active['type']}@{active['price']} 已失效:"
+                          f"现价 {entry} 突破信号高点(含0.2%缓冲)。"
+                          f"卖点被击穿即作废,等待新结构形成再决策。"}
+
     # 指标确认票(4 票制:当前 KDJ 叉 / RSI 背离 / 量价组合 / 信号点自身共振)
     confirms, hits = [], 0
     kdj_states = (sg.get("kdj") or {}).get("states") or []
@@ -118,6 +136,10 @@ def decide(cur, hi, bar, hi_bar):
         confirms.append("暂无指标确认")
 
     sq = _signal_quality(active, ch["beichi"])
+    # 未锁定信号(位于最新确认笔端点上)可能随更极端分型移动/消失 → 降权
+    unlocked = not active.get("locked", True)
+    if unlocked:
+        sq = round(sq * 0.7, 2)
     q = round(hd["strength"] * 0.4 + sq * 0.4 + (hits / 4) * 0.2, 3)
     if q >= 0.85:
         pos_pct = 100
@@ -130,19 +152,20 @@ def decide(cur, hi, bar, hi_bar):
     else:
         return {**base, "action": "wait", "q": q, "signal": active,
                 "reason": f"信号 {active['type']} 与大级别不冲突,但综合质量分 {q} 过低"
-                          f"(方向强度 {hd['strength']}、信号质量 {sq}、确认 {hits}/4),"
+                          f"(方向强度 {hd['strength']}、信号质量 {sq}"
+                          f"{',未锁定已×0.7降权' if unlocked else ''}、确认 {hits}/4),"
                           f"手册标准:q<0.35 观望。"}
 
     # 止损:结构止损 vs 中枢止损,取离入场更近(更保守)者
+    #(前面已做价格失效检查,结构止损必在入场价的正确一侧)
     zs = (ch.get("summary") or {}).get("last_zs")
-    entry = live
     stops = []
     if side == "long":
         stops.append(("结构止损(信号低点下0.2%)", active["price"] * (1 - STOP_BUFFER)))
-        if zs and zs["zd"] < entry:
+        if zs and zs["zd"] * (1 - STOP_BUFFER) < entry:
             stops.append(("中枢止损(ZD下0.2%)", zs["zd"] * (1 - STOP_BUFFER)))
         stops = [s for s in stops if s[1] < entry]
-        stop_name, stop = max(stops, key=lambda s: s[1]) if stops else ("结构止损", active["price"] * (1 - STOP_BUFFER))
+        stop_name, stop = max(stops, key=lambda s: s[1])
         targets = []
         if zs and zs["zg"] > entry:
             targets.append(("中枢上沿 ZG", zs["zg"]))
@@ -152,10 +175,10 @@ def decide(cur, hi, bar, hi_bar):
         risk = entry - stop
     else:
         stops.append(("结构止损(信号高点上0.2%)", active["price"] * (1 + STOP_BUFFER)))
-        if zs and zs["zg"] > entry:
+        if zs and zs["zg"] * (1 + STOP_BUFFER) > entry:
             stops.append(("中枢止损(ZG上0.2%)", zs["zg"] * (1 + STOP_BUFFER)))
         stops = [s for s in stops if s[1] > entry]
-        stop_name, stop = min(stops, key=lambda s: s[1]) if stops else ("结构止损", active["price"] * (1 + STOP_BUFFER))
+        stop_name, stop = min(stops, key=lambda s: s[1])
         targets = []
         if zs and zs["zd"] < entry:
             targets.append(("中枢下沿 ZD", zs["zd"]))
@@ -166,26 +189,40 @@ def decide(cur, hi, bar, hi_bar):
 
     rnd = lambda v: round(v, 6 if entry < 10 else 2)
 
-    rr = None
-    warnings = []
-    if targets and risk > 0:
-        reward = abs(targets[0][1] - entry)
-        rr = round(reward / risk, 2)
-        if rr < 2:
-            # 盈亏比≥1:2 是手册硬约束:不满足直接降级为观望,
-            # 并给出满足 1:2 的入场价(entry* 满足 |目标-e|=2|e-止损| → e=(目标+2×止损)/3)
-            better = (targets[0][1] + 2 * stop) / 3
-            move = "回调" if side == "long" else "反弹"
-            return {**base, "action": "wait", "q": q, "signal": active,
-                    "stop": rnd(stop), "stop_name": stop_name,
-                    "targets": [(n, rnd(v)) for n, v in targets], "rr": rr,
-                    "better_entry": rnd(better),
-                    "reason": f"信号 {active['type']}@{rnd(active['price'])} 有效(质量分 {q}),"
-                              f"但现价 {rnd(entry)} 追单到第一目标的盈亏比仅 1:{rr},"
-                              f"低于手册硬约束 1:2 → 观望,等{move}至 {rnd(better)} 附近再考虑"
-                              f"(止损 {rnd(stop)},目标 {rnd(targets[0][1])})。"}
+    if risk <= 0:
+        # 理论上被前面的失效检查拦截,防御性兜底
+        return {**base, "action": "wait", "q": q, "signal": active,
+                "stop": rnd(stop), "stop_name": stop_name,
+                "reason": f"现价 {rnd(entry)} 已到达/越过止损位 {rnd(stop)},"
+                          f"风险无法定义 → 观望。"}
     if not targets:
-        warnings.append("上方/下方无明确结构目标,谨慎追单。")
+        # 无结构目标 → 盈亏比无法核算,硬约束(≥1:2)无从满足
+        return {**base, "action": "wait", "q": q, "signal": active,
+                "stop": rnd(stop), "stop_name": stop_name,
+                "reason": f"信号 {active['type']} 有效(质量分 {q}),"
+                          f"但{'上方' if side == 'long' else '下方'}无明确结构目标,"
+                          f"盈亏比无法核算。手册硬约束盈亏比≥1:2 无从验证 → 观望,"
+                          f"等中枢/结构目标形成后再评估。"}
+    reward = abs(targets[0][1] - entry)
+    rr = round(reward / risk, 2)
+    if rr < 2:
+        # 盈亏比≥1:2 是手册硬约束:不满足直接降级为观望,
+        # 并给出满足 1:2 的入场价(entry* 满足 |目标-e|=2|e-止损| → e=(目标+2×止损)/3)
+        better = (targets[0][1] + 2 * stop) / 3
+        move = "回调" if side == "long" else "反弹"
+        return {**base, "action": "wait", "q": q, "signal": active,
+                "stop": rnd(stop), "stop_name": stop_name,
+                "targets": [(n, rnd(v)) for n, v in targets], "rr": rr,
+                "better_entry": rnd(better),
+                "reason": f"信号 {active['type']}@{rnd(active['price'])} 有效(质量分 {q}),"
+                          f"但现价 {rnd(entry)} 追单到第一目标的盈亏比仅 1:{rr},"
+                          f"低于手册硬约束 1:2 → 观望,等{move}至 {rnd(better)} 附近再考虑"
+                          f"(止损 {rnd(stop)},目标 {rnd(targets[0][1])})。"}
+
+    warnings = []
+    if unlocked:
+        warnings.append("信号未锁定:端点可能随新K线移动或消失,评分已×0.7降权;"
+                        "稳妥做法是等下一笔确认(信号锁定)后再入场。")
     return {
         **base,
         "action": side, "q": q, "position": pos_pct,

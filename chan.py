@@ -201,9 +201,14 @@ def _seg_area(hist, b, direction):
 
 def detect_beichi(bis, zss, candles, bar):
     """背驰:比较前后两个同向笔(前段=进入段近似,后段=离开段)。
-    门槛:后段创新低/新高;有效条件:MACD 同向柱面积比 后/前 < 0.7。
-    趋势/盘整背驰用中枢判别:后段之前存在 ≥2 个同向依次移动的中枢 = 趋势背驰。
-    返回 [{kind, dir, k_idx, price, ts, area_ratio, score, score_detail, bi_idx}]"""
+    门槛:后段创新低/新高;有效条件:MACD 同向柱面积比 后/前 < 0.7(手册判据,不改)。
+    结构确认 struct_ok:后段紧邻某已完成中枢(中枢最后一笔在 i-2/i-1)且创出
+    脱离中枢区间的极值 = 标准背驰;否则为"宽口径"(单边行情中段的相邻笔动能
+    衰减,误报率更高),评分 ×0.85 降档并在前端降档展示。
+    趋势/盘整判别以该紧邻中枢为锚:它与其前一个中枢同向依次移动 = 趋势背驰
+    (无紧邻中枢一律记盘整,防止历史无关中枢误标趋势多得 15 分)。
+    返回 [{kind, dir, k_idx, price, ts, area_ratio, score, score_detail, bi_idx,
+           struct_ok}]"""
     close = pd.Series([c["c"] for c in candles], dtype=float)
     dif_s, _, _ = macd(close)
     dif = dif_s.tolist()
@@ -229,22 +234,37 @@ def detect_beichi(bis, zss, candles, bar):
         if ratio >= 0.7:
             continue  # 手册:<0.7 才是有效背驰
 
-        # 趋势 vs 盘整:后段结束前的最近两个中枢是否同向依次移动
+        # 结构确认:bout 是否为紧邻中枢的离开段
+        #(中枢以最后一笔落在 i-2/i-1 为"紧邻",且 bout 创出脱离中枢区间的极值)
+        znear = None
+        for z in zss:
+            if i - 2 <= z["bi_end"] <= i - 1 and (
+                    (d == "down" and _bi_low(bout) < z["zd"]) or
+                    (d == "up" and _bi_high(bout) > z["zg"])):
+                znear = z
+                break
+        struct_ok = znear is not None
+
+        # 趋势 vs 盘整:以紧邻中枢为锚,它与其前一个中枢同向依次移动 = 趋势背驰。
+        # 无紧邻中枢一律记盘整——历史无关中枢不能参与分类(否则误得趋势 15 分)
         kind = "panzheng"
-        prior = [z for z in zss if z["end_idx"] <= bout["end_idx"]]
-        if len(prior) >= 2:
-            z1, z2 = prior[-2], prior[-1]
-            if (d == "down" and z1["zd"] >= z2["zg"]) or \
-               (d == "up" and z1["zg"] <= z2["zd"]):
-                kind = "trend"
+        if struct_ok:
+            prior = [z for z in zss if z["bi_end"] <= znear["bi_end"]]
+            if len(prior) >= 2:
+                z1, z2 = prior[-2], prior[-1]  # z2 即紧邻中枢
+                if (d == "down" and z1["zd"] >= z2["zg"]) or \
+                   (d == "up" and z1["zg"] <= z2["zd"]):
+                    kind = "trend"
 
         score, detail = _score_beichi(ratio, kind, bin_, bout, dif, candles, lvl_w)
+        if not struct_ok:
+            score = round(score * 0.85, 1)  # 宽口径降档(手册评分器本身不动)
         out.append({
             "kind": kind, "dir": d,
             "k_idx": bout["end_idx"], "price": bout["end_price"],
             "ts": bout["end_ts"], "area_ratio": round(ratio, 4),
             "score": score, "score_detail": detail,
-            "bi_idx": i,
+            "bi_idx": i, "struct_ok": struct_ok,
         })
     return out
 
@@ -481,12 +501,13 @@ def find_bsp(bis, zss, bcs, candles, bar):
         bc_raw = bc["score"] / lvl_w if lvl_w > 0 else bc["score"]  # 还原未加权分
         raw1 = 40 + bc_raw * 0.4
         kind_cn = "趋势" if bc["kind"] == "trend" else "盘整"
+        wide = "" if bc.get("struct_ok", True) else ",宽口径(附近无紧邻中枢)"
         if bc["dir"] == "down":
             emit("B1", bc["k_idx"], bc["price"], bc["ts"],
-                 f"{kind_cn}底背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}", raw1)
+                 f"{kind_cn}底背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}{wide}", raw1)
         else:
             emit("S1", bc["k_idx"], bc["price"], bc["ts"],
-                 f"{kind_cn}顶背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}", raw1)
+                 f"{kind_cn}顶背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}{wide}", raw1)
 
         # 2类:1类点之后,次级别回调/反弹不破前极值
         i = bc["bi_idx"]
