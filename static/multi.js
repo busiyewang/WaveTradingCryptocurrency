@@ -148,7 +148,7 @@
       },
     }, true, { id: 'candle_pane' });
     chart.createIndicator('VOL', false, { height: 55 });
-    chart.createIndicator('MACD', false, { height: 70 });
+    chart.createIndicator({ name: 'MACD', calcParams: [10, 20, 5] }, false, { height: 70 });
     return { chart, key: null, lastList: null };
   }
 

@@ -155,7 +155,7 @@
     },
   }, true, { id: 'candle_pane' });
   chart.createIndicator('VOL', false, { height: 70 });
-  chart.createIndicator('MACD', false, { height: 90 });
+  chart.createIndicator({ name: 'MACD', calcParams: [10, 20, 5] }, false, { height: 90 });
   chart.createIndicator('KDJ', false, { height: 80 });
   chart.createIndicator('RSI_CN', false, { height: 80 });
 

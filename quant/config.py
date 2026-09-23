@@ -7,7 +7,7 @@ BAR_MS = {"15m": 15 * 60 * 1000, "4H": 4 * 60 * 60 * 1000}
 
 @dataclass(frozen=True)
 class StrategyConfig:
-    version: str = "chan-b23-v3-strokes-centers"
+    version: str = "chan-b23-v4-macd-10-20-5"
     big_bar: str = "4H"
     small_bar: str = "15m"
     history_limit: int = 600

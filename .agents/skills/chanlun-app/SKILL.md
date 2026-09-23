@@ -72,7 +72,7 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
 - **价格与动能门槛**:趋势后段必须突破从前比较段起至后笔之前全部已走走势的
   极值,不能只超前段端点而忽略中间更极端的高低点;盘整/动能衰减仍与对应
   前段比较极值。同向 MACD 柱面积比 后/前 <0.7;
-  MACD(12,26,9),HIST=2×(DIF−DEA)。0.7≤比值<1 是萎缩不足,
+  MACD(10,20,5),HIST=2×(DIF−DEA)。0.7≤比值<1 是萎缩不足,
   比值=1 是面积持平,>1 才是面积放大;三者均未达到本工具 <0.7 的筛选门槛。
 - **买卖点**:只有 `kind=trend` 且 `struct_ok=True` 的底背驰生成 B1;
   B2 为该 B1 后回调笔不破前低;B3使用离开笔之前已形成的中枢快照,
@@ -92,7 +92,8 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
 - **活跃范围**:decision/multilevel/quant共享active_signal_cutoff,保留最新锁定笔端点起及较新的候选;
   暂无显式锁定笔时看最近两条成笔。有更新的笔锁定后旧信号才过期,不以仅多出一笔判过期。
   量化仍选范围内最新B2/B3/S2/S3且必须locked;价格失效、方向、结构位和净RR约束不放宽。
-- **研究版本**:`chan-b23-v3-strokes-centers`;与v2/v1分开记录。source_fingerprint包含
+- **研究版本**:`chan-b23-v4-macd-10-20-5`;MACD参数变化会影响指标与候选集合,
+  与v3/v2/v1分开记录。source_fingerprint包含
   chan_strokes.py、chan_centers.py、chan_segments.py,不能只哈希chan.py而遗漏拆分模块。
 - 级别权重 LEVEL_WEIGHT={1m:0.55,5m:0.7,15m:0.8,1H:0.9,4H:1.0,1D:1.0,1W:1.0}
   (15m 手册未给,0.8 为插值)。
@@ -126,7 +127,7 @@ bar 大小写敏感:`1m/5m/15m/1H/4H/1D/1W`。OKX 返回倒序、末根 confirm=
    位置;`applyNewData` 会重置视图,只在切币/切周期时用。拖动中整体重载会造成
    副图断裂的半渲染状态。
 5. 内置 RSI 是简单均值,与 OKX(Wilder 平滑)差异大 → 已 registerIndicator
-   'RSI_CN';内置 MACD/KDJ 与国内口径一致可直接用。
+   'RSI_CN';内置 MACD 显式传 `calcParams:[10,20,5]`,柱定义与国内口径一致;KDJ可直接用。
 6. 内置 overlay 'priceLine' 可画水平价格线(需要画入场/止损/止盈线时用它)。
 7. text figure 支持 backgroundColor/padding(9.8 已并入,rectText 亦存在)。
 8. 调试入口:`window._chart` 已暴露(app.js)。
