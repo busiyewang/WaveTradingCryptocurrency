@@ -20,7 +20,7 @@ import patterns
 OKX_BASE = "https://www.okx.com"
 # OKX bar 参数大小写敏感:分钟小写,小时/日/周大写
 VALID_BARS = ["1m", "5m", "15m", "1H", "4H", "1D", "1W"]
-TARGET_COUNT = 600  # 目标K线根数(300 一页,分页补齐)
+TARGET_COUNT = 1200  # 目标K线根数(首页300根,历史每页100根补齐)
 
 COMMON_INSTRUMENTS = [
     "BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",

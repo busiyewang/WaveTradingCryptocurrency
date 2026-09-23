@@ -9,6 +9,18 @@
     data: null, loading: false,
   };
 
+  function beichiView(b) {
+    const kind = b.struct_ok === false || !['trend', 'panzheng'].includes(b.kind)
+      ? 'momentum' : b.kind;
+    const bottom = b.dir === 'down' || b.side === 'long';
+    const views = {
+      trend: { label: `趋势${bottom ? '底' : '顶'}背驰`, color: '#9a6700', rgb: '154,103,0' },
+      panzheng: { label: `盘整${bottom ? '底' : '顶'}背驰`, color: '#3265a8', rgb: '50,101,168' },
+      momentum: { label: `${bottom ? '下跌' : '上涨'}动能衰减`, color: '#575f6b', rgb: '87,95,107' },
+    };
+    return { kind, ...views[kind] };
+  }
+
   /* ---------------- overlay 注册(与 app.js 同款 + 关键位横线) ---------------- */
   klinecharts.registerOverlay({
     name: 'biLine',
@@ -20,7 +32,7 @@
       return [{
         type: 'line',
         attrs: { coordinates },
-        styles: { color: d.color || '#f0b90b', size: 1.4, style: d.dashed ? 'dashed' : 'solid', dashedValue: [4, 4] },
+        styles: { color: d.color || '#f0b90b', size: d.size || 1.4, style: d.dashed ? 'dashed' : 'solid', dashedValue: [4, 4] },
         ignoreEvent: true,
       }];
     },
@@ -30,13 +42,14 @@
     name: 'zsRect',
     totalStep: 3,
     lock: true,
-    createPointFigures: ({ coordinates }) => {
+    createPointFigures: ({ coordinates, overlay }) => {
       if (coordinates.length < 2) return [];
       const [a, b] = coordinates;
+      const pending = overlay.extendData?.locked !== true;
       return [{
         type: 'rect',
         attrs: { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) },
-        styles: { style: 'stroke_fill', color: 'rgba(76,141,255,0.10)', borderColor: 'rgba(76,141,255,0.85)', borderSize: 1 },
+        styles: { style: 'stroke_fill', color: pending ? 'rgba(76,141,255,0.04)' : 'rgba(76,141,255,0.10)', borderColor: pending ? 'rgba(76,141,255,0.50)' : 'rgba(76,141,255,0.85)', borderSize: 1, borderStyle: pending ? 'dashed' : 'solid', borderDashedValue: [4, 4] },
         ignoreEvent: true,
       }];
     },
@@ -212,7 +225,7 @@
   };
   $('instInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('goBtn').onclick(); });
   $('refreshBtn').onclick = () => loadData(true);
-  ['ckBi', 'ckZs', 'ckSig', 'ckLv'].forEach((id) => { $(id).onchange = drawAll; });
+  ['ckBi', 'ckXd', 'ckZs', 'ckSig', 'ckLv'].forEach((id) => { $(id).onchange = drawAll; });
 
   function setStatus(msg, err) {
     const el = $('status');
@@ -283,35 +296,45 @@
     const mk = (o) => chart.createOverlay(Object.assign({ groupId: 'chan', lock: true }, o));
 
     if ($('ckBi').checked) {
-      ch.bi.forEach((b) => mk({
+      ch.bi.filter((b) => b.state !== 'blocked').forEach((b) => mk({
         name: 'biLine',
         points: [
           { timestamp: b.start_ts, value: b.start_price },
           { timestamp: b.end_ts, value: b.end_price },
         ],
-        extendData: { color: b.unfinished ? '#8b949e' : '#f0b90b', dashed: b.unfinished },
+        extendData: { layer: 'bi', color: b.unfinished ? '#8b949e' : '#f0b90b', dashed: b.locked !== true },
+      }));
+    }
+    if ($('ckXd').checked) {
+      (ch.xianduan || []).forEach((b) => mk({
+        name: 'biLine',
+        points: [{ timestamp: b.start_ts, value: b.start_price }, { timestamp: b.end_ts, value: b.end_price }],
+        extendData: { layer: 'xianduan', color: '#b388ff', size: 2.5, dashed: b.locked !== true },
       }));
     }
     if ($('ckZs').checked) {
-      ch.zhongshu.forEach((z) => mk({
+      (ch.zhongshu_display || ch.zhongshu).forEach((z) => mk({
         name: 'zsRect',
         points: [
           { timestamp: z.start_ts, value: z.zg },
           { timestamp: z.end_ts, value: z.zd },
         ],
+        extendData: { locked: z.locked, state: z.state },
       }));
     }
     if ($('ckSig').checked) {
       ch.beichi.forEach((b) => {
         const unlocked = b.locked === false;
-        const bg = unlocked ? 'rgba(154,103,0,0.55)' : '#9a6700';
+        const view = beichiView(b);
+        const bg = unlocked ? `rgba(${view.rgb},0.55)` : view.color;
         const tail = unlocked ? ' ?' : '';
         mk({
           name: 'chanMark',
           points: [{ timestamp: b.ts, value: b.price }],
-          extendData: b.dir === 'down'
-            ? { text: `⚡底背驰 ${b.area_ratio}${tail}`, pos: 'below', bg, textColor: '#fff', offset: 20 }
-            : { text: `⚡顶背驰 ${b.area_ratio}${tail}`, pos: 'above', bg, textColor: '#fff', offset: 20 },
+          extendData: {
+            text: `${view.kind === 'momentum' ? '' : '⚡'}${view.label} ${b.area_ratio}${tail}`,
+            pos: b.dir === 'down' ? 'below' : 'above', bg, textColor: '#fff', offset: 20,
+          },
         });
       });
       (ch.beili || []).forEach((s) => {
@@ -442,25 +465,29 @@
     (m.signals || []).slice(-12).reverse().forEach((s) => {
       const buy = s.side === 'long';
       const unlocked = s.locked === false;
-      const bg = s.tag.includes('背离') ? (buy ? '#1b7c83' : '#bf3989')
-        : s.tag.includes('背驰') ? '#9a6700'
-        : (buy ? '#1a7f37' : '#cf222e');
+      const isBeichi = s.kind != null || /背驰|动能衰减/.test(s.tag);
+      const view = isBeichi ? beichiView(s) : null;
+      const observation = s.entry_eligible === false || (view && view.kind !== 'trend');
+      const bg = view ? view.color : s.tag.includes('背离')
+        ? (buy ? '#1b7c83' : '#bf3989') : (buy ? '#1a7f37' : '#cf222e');
+      const tag = view ? view.label : s.tag;
       const verify = s.verify_level
-        ? `<span class="up">✓ ${s.verify_level}</span>`
+        ? `<span class="${observation ? 'muted' : 'up'}">接近 ${s.verify_level}</span>`
         : '<span class="muted">✗ 远离关键位·杂波</span>';
       const scColor = s.score >= 75 ? '#2ebd85' : s.score >= 60 ? '#4c8dff' : s.score >= 45 ? '#d29922' : '#6e7681';
       rows2 += `<tr class="row" data-ts="${s.ts}">
-        <td><span class="tag" style="background:${bg};${unlocked ? 'opacity:.55' : ''}">${s.tag}${unlocked ? '?' : ''}</span></td>
+        <td><span class="tag" style="background:${bg};${unlocked ? 'opacity:.55' : ''}">${tag}${unlocked ? '?' : ''}</span></td>
         <td>${fmtP(s.price)}</td>
         <td>${s.score != null ? `<b style="color:${scColor}">${s.score}</b>` : '-'}</td>
+        <td>${observation ? '<span class="muted">仅观察</span>' : '待策略验证'}<div class="muted">${unlocked ? '未锁定' : '已锁定'}</div></td>
         <td>${verify}</td>
         <td class="muted">${fmtTs(s.ts)}</td></tr>`;
     });
-    $('colSig').innerHTML = `<h3>${m.small_bar} 小级别 · 确认信号(点击跳转)</h3>` +
+    $('colSig').innerHTML = `<h3>${m.small_bar} 小级别 · 信号与观察(点击跳转)</h3>` +
       (rows2
-        ? `<table><tr><th>信号</th><th>价格</th><th>评分</th><th>关键位验证</th><th>时间</th></tr>${rows2}</table>`
+        ? `<table><tr><th>信号</th><th>价格</th><th>评分</th><th>状态</th><th>关键位位置</th><th>时间</th></tr>${rows2}</table>`
         : '<div class="muted">最近两笔范围内无活跃信号。等价格接触大级别关键位后再看这里。</div>') +
-      '<div class="muted" style="margin-top:4px">只有落在大级别关键位附近的信号才算确认;远离关键位的信号是杂波,忽略。</div>';
+      '<div class="muted" style="margin-top:4px">盘整背驰与动能衰减仅作观察，接近关键位也不作为入场确认。趋势背驰仍是候选；入场须通过方向、关键位与风险条件，以上方决策为准。已锁定只表示端点不再移动。</div>';
     document.querySelectorAll('#colSig tr.row').forEach((tr) => {
       tr.onclick = () => small.chart.scrollToTimestamp(Number(tr.dataset.ts), 300);
     });

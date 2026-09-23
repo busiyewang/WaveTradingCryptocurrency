@@ -1,7 +1,7 @@
 """量化专用过滤层，不直接执行界面 decision/multilevel 的 action。"""
 from hashlib import sha256
 
-from decision import STOP_BUFFER, _direction
+from decision import STOP_BUFFER, _direction, active_signal_cutoff
 
 
 def signal_key(inst, bar, signal):
@@ -30,7 +30,7 @@ def evaluate(inst, big_rows, small_rows, big, small, config):
     if len(finished) < 2:
         return result
     active = [s for s in small["bsp"]
-              if s["k_idx"] >= finished[-2]["end_idx"]
+              if s["k_idx"] >= active_signal_cutoff(finished)
               and s["type"] in ("B2", "B3", "S2", "S3")]
     if not active:
         return result

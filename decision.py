@@ -2,7 +2,7 @@
 
 思路(手册第 3、7-9 章):
 - 大级别定方向:上一级别的结构状态(现价相对中枢位置 + 最新笔方向)给出方向与强度;
-- 本级别定买点:最近的一二三类买卖点是否仍"活跃"(位于最近两个笔端点范围内);
+- 本级别定买点:最新锁定笔及其后的一二三类候选是否仍活跃;
 - 指标确认:KDJ 金叉死叉、RSI 背离、量价组合作为确认票;
 - 冲突规则:信号方向与大级别方向相反 → 禁止操作(观望);
 - 失效规则:现价已越过信号点的结构止损位(做多跌破信号低点/做空突破信号高点,
@@ -21,6 +21,19 @@ LEVEL_UP = {"1m": "15m", "5m": "1H", "15m": "1H", "1H": "4H",
             "4H": "1D", "1D": "1W", "1W": "1W"}
 
 STOP_BUFFER = 0.002  # 结构/中枢止损缓冲 0.2%
+
+
+def active_signal_cutoff(finished):
+    """保留刚锁定的端点，避免两笔确认滞后与旧的两笔活跃窗口互斥。
+
+    更新的笔进入锁定前缀后，旧端点过期。没有锁定笔的早期窗口
+    沿用最近两条成笔；方向、失效价位与评分等过滤仍由调用方检查。
+    """
+    if not finished:
+        return float("inf")
+    cutoff = finished[-2]["end_idx"] if len(finished) >= 2 else finished[-1]["start_idx"]
+    locked = [b for b in finished if b.get("locked") is True]
+    return min(cutoff, locked[-1]["end_idx"]) if locked else cutoff
 
 
 def _direction(summary):
@@ -72,17 +85,17 @@ def decide(cur, hi, bar, hi_bar):
                  "同时持仓≤2 · 日亏3%/周亏6%停手",
     }
 
-    # 活跃信号:最近一个买卖点须位于最近两个笔端点范围内
+    # 兼容确认滞后：最新锁定端点及其后的候选才处于活跃窗口。
     active = None
     if ch["bsp"] and len(fin) >= 2:
         last = ch["bsp"][-1]
-        if last["k_idx"] >= fin[-2]["end_idx"]:
+        if last["k_idx"] >= active_signal_cutoff(fin):
             active = last
     if not active:
         note = ""
         if ch["bsp"]:
             p = ch["bsp"][-1]
-            note = f"最近信号 {p['type']}@{p['price']} 已过期(其后结构已走出新笔)。"
+            note = f"最近信号 {p['type']}@{p['price']} 已不在活跃窗口(已有更近的结构端点)。"
         return {**base, "action": "wait", "q": 0,
                 "reason": "本级别当前没有活跃的买卖点信号。" + note +
                           "等待新的背驰/买卖点出现再决策。"}

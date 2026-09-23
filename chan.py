@@ -6,9 +6,9 @@
 - 新笔:两端点之间(含端点)≥5 根处理后K线;端点取分型中间K的极值;分型顶底交替,
   同类型取更极端者。
 - 中枢:≥3 个连续段(相邻笔近似)重叠,ZG=min(各段高点),ZD=max(各段低点),ZG>ZD,可延伸。
-- 背驰:进入段 vs 离开段的 MACD 柱同向面积和,后/前 < 0.7 有效;
-  跨≥2 个同向依次移动的中枢 = 趋势背驰,否则盘整背驰。
-- 买卖点:1买=下跌末段背驰低点;2买=其后回调不破前低;3买=离开中枢回踩不跌回 ZG 之下。
+- 背驰:趋势比较两个同向不重叠中枢的离开笔,盘整比较同一已形成中枢的同向波动;
+  同向 MACD 柱面积后/前 < 0.7 且创新极值。无可验证中枢结构只记动能衰减。
+- 买卖点:1买=趋势底背驰低点;2买=其后回调不破前低;3买=离开中枢回踩不跌回 ZG 之下。
 """
 
 from indicators import kdj, macd, macd_hist_list, rsi
@@ -19,131 +19,11 @@ LEVEL_WEIGHT = {"1m": 0.55, "5m": 0.7, "15m": 0.8, "1H": 0.9,
                 "4H": 1.0, "1D": 1.0, "1W": 1.0}
 
 
-# ---------------------------------------------------------------- 包含处理
+# 结构模块独立于指标评分，保留这些导出供现有调用使用。
+from chan_strokes import merge_klines, find_fenxing, build_bi, _can_form_bi
+from chan_centers import build_zhongshu, logical_centers, third_point_candidates
+from chan_segments import build_segments
 
-def merge_klines(candles):
-    """K线包含处理。返回处理后K线列表:
-    {h, l, hi_idx, lo_idx, idx_start, idx_end}
-    hi_idx/lo_idx 为极值所在原始K线下标(分型定位用)。"""
-    merged = []
-    direction = 1  # 前一根未被包含K线决定;初始默认向上
-    for i, k in enumerate(candles):
-        h, l = k["h"], k["l"]
-        if not merged:
-            merged.append({"h": h, "l": l, "hi_idx": i, "lo_idx": i,
-                           "idx_start": i, "idx_end": i})
-            continue
-        last = merged[-1]
-        contains = (last["h"] >= h and last["l"] <= l) or \
-                   (h >= last["h"] and l <= last["l"])
-        if contains:
-            if direction >= 0:  # 向上:高高
-                if h > last["h"]:
-                    last["h"], last["hi_idx"] = h, i
-                if l > last["l"]:
-                    last["l"], last["lo_idx"] = l, i
-            else:  # 向下:低低
-                if h < last["h"]:
-                    last["h"], last["hi_idx"] = h, i
-                if l < last["l"]:
-                    last["l"], last["lo_idx"] = l, i
-            last["idx_end"] = i
-        else:
-            direction = 1 if h > last["h"] else -1
-            merged.append({"h": h, "l": l, "hi_idx": i, "lo_idx": i,
-                           "idx_start": i, "idx_end": i})
-    return merged
-
-
-# ---------------------------------------------------------------- 分型
-
-def find_fenxing(merged, candles):
-    """顶/底分型。返回 [{type, mk_idx, k_idx, price, ts}]。"""
-    out = []
-    for i in range(1, len(merged) - 1):
-        a, b, c = merged[i - 1], merged[i], merged[i + 1]
-        if b["h"] > a["h"] and b["h"] > c["h"] and b["l"] > a["l"] and b["l"] > c["l"]:
-            out.append({"type": "top", "mk_idx": i, "k_idx": b["hi_idx"],
-                        "price": b["h"], "ts": candles[b["hi_idx"]]["ts"]})
-        elif b["l"] < a["l"] and b["l"] < c["l"] and b["h"] < a["h"] and b["h"] < c["h"]:
-            out.append({"type": "bottom", "mk_idx": i, "k_idx": b["lo_idx"],
-                        "price": b["l"], "ts": candles[b["lo_idx"]]["ts"]})
-    return out
-
-
-# ---------------------------------------------------------------- 笔(新笔规则)
-
-def build_bi(fenxing, candles):
-    """新笔:端点分型顶底交替、同类型取更极端者、两端点间(含端点)≥5 根处理后K线。
-    返回 (bi_list, endpoints)。bi: {dir, start_idx, end_idx, start_price, end_price,
-    start_ts, end_ts, start_mk, end_mk, mk_count, unfinished}"""
-    eps = []  # 确认的端点分型序列
-    for fx in fenxing:
-        if not eps:
-            eps.append(fx)
-            continue
-        last = eps[-1]
-        if fx["type"] == last["type"]:
-            # 同类型取更极端者
-            more_extreme = (fx["price"] > last["price"]) if fx["type"] == "top" \
-                else (fx["price"] < last["price"])
-            if more_extreme:
-                # 新分型时间更靠后,与前一端点的距离只增不减,直接替换
-                eps[-1] = fx
-        else:
-            if _can_form_bi(last, fx):
-                eps.append(fx)
-            # 距离不足:忽略该分型,等待后续更极端或更远的分型
-
-    bis = []
-    for i in range(len(eps) - 1):
-        a, b = eps[i], eps[i + 1]
-        bis.append({
-            "dir": "up" if b["type"] == "top" else "down",
-            "start_idx": a["k_idx"], "end_idx": b["k_idx"],
-            "start_price": a["price"], "end_price": b["price"],
-            "start_ts": candles[a["k_idx"]]["ts"], "end_ts": candles[b["k_idx"]]["ts"],
-            "start_mk": a["mk_idx"], "end_mk": b["mk_idx"],
-            "mk_count": b["mk_idx"] - a["mk_idx"] + 1,
-            "unfinished": False,
-        })
-
-    # 进行中的未完成笔:从最后端点到之后的极值K线(虚线展示用)
-    if eps:
-        last_ep = eps[-1]
-        tail = candles[last_ep["k_idx"] + 1:]
-        if len(tail) >= 1:
-            base = last_ep["k_idx"] + 1
-            if last_ep["type"] == "top":  # 向下进行中
-                j = min(range(len(tail)), key=lambda x: tail[x]["l"])
-                price, dir_ = tail[j]["l"], "down"
-            else:
-                j = max(range(len(tail)), key=lambda x: tail[x]["h"])
-                price, dir_ = tail[j]["h"], "up"
-            end_idx = base + j
-            if end_idx > last_ep["k_idx"]:
-                bis.append({
-                    "dir": dir_,
-                    "start_idx": last_ep["k_idx"], "end_idx": end_idx,
-                    "start_price": last_ep["price"], "end_price": price,
-                    "start_ts": candles[last_ep["k_idx"]]["ts"],
-                    "end_ts": candles[end_idx]["ts"],
-                    "start_mk": last_ep["mk_idx"], "end_mk": -1,
-                    "mk_count": 0, "unfinished": True,
-                })
-    return bis, eps
-
-
-def _can_form_bi(fx_a, fx_b):
-    """新笔条件:两端点间(含端点)≥5 根处理后K线,且顶价>底价。"""
-    if fx_b["mk_idx"] - fx_a["mk_idx"] + 1 < 5:
-        return False
-    top = fx_a if fx_a["type"] == "top" else fx_b
-    bot = fx_b if fx_a["type"] == "top" else fx_a
-    return top["price"] > bot["price"]
-
-
-# ---------------------------------------------------------------- 中枢
 
 def _bi_high(b):
     return max(b["start_price"], b["end_price"])
@@ -152,41 +32,6 @@ def _bi_high(b):
 def _bi_low(b):
     return min(b["start_price"], b["end_price"])
 
-
-def build_zhongshu(bis, candles):
-    """相邻笔近似次级别段。连续 ≥3 笔重叠成中枢:ZG=min(高点), ZD=max(低点), ZG>ZD;
-    后续笔与 [ZD,ZG] 有重叠则延伸并入。返回
-    [{zg, zd, gg, dd, bi_start, bi_end, bi_count, start_idx, end_idx, start_ts, end_ts}]"""
-    fin = [b for b in bis if not b["unfinished"]]
-    out = []
-    i = 0
-    while i + 2 < len(fin):
-        b1, b2, b3 = fin[i], fin[i + 1], fin[i + 2]
-        zg = min(_bi_high(b1), _bi_high(b2), _bi_high(b3))
-        zd = max(_bi_low(b1), _bi_low(b2), _bi_low(b3))
-        if zg > zd:
-            j = i + 3
-            # 延伸并入,最多 9 段(超过应升级为更大级别中枢,手册惯例)
-            while j < len(fin) and j - i < 9 and \
-                    _bi_high(fin[j]) >= zd and _bi_low(fin[j]) <= zg:
-                j += 1
-            seg = fin[i:j]
-            out.append({
-                "zg": zg, "zd": zd,
-                "gg": max(_bi_high(b) for b in seg),
-                "dd": min(_bi_low(b) for b in seg),
-                "bi_start": bis.index(b1), "bi_end": bis.index(seg[-1]),
-                "bi_count": len(seg),
-                "start_idx": b1["start_idx"], "end_idx": seg[-1]["end_idx"],
-                "start_ts": b1["start_ts"], "end_ts": seg[-1]["end_ts"],
-            })
-            i = j
-        else:
-            i += 1
-    return out
-
-
-# ---------------------------------------------------------------- 背驰
 
 def _seg_area(hist, b, direction):
     """一笔区间内 MACD 同向柱面积:down 取负柱绝对值和,up 取正柱和。"""
@@ -199,16 +44,60 @@ def _seg_area(hist, b, direction):
     return s
 
 
+def _touches_center(b, z):
+    return _bi_high(b) >= z["zd"] and _bi_low(b) <= z["zg"]
+
+
+def _leaves_center(b, z):
+    """离开笔穿过中枢边界;它本身可能仍被中枢延伸纳入 bi_end。"""
+    if b["dir"] == "down":
+        return b["start_price"] >= z["zd"] and b["end_price"] < z["zd"]
+    return b["start_price"] <= z["zg"] and b["end_price"] > z["zg"]
+
+
+def _divergence_comparison(bis, i, centers):
+    """先按结构选比较笔,再检验力度;结构不达标不能改比别的笔来生成一买。"""
+    bout = bis[i]
+    previous = i - 2
+    active = centers[-1] if centers and centers[-1]["bi_end"] >= i - 2 else None
+    if active and len(centers) >= 2 and _leaves_center(bout, active):
+        first, second = centers[-2:]
+        same_direction = (first["zd"] > second["zg"] if bout["dir"] == "down"
+                          else first["zg"] < second["zd"])
+        if same_direction:
+            # 九笔封顶后才离开的笔也有效。它还可能成为第二中枢的首笔
+            # (第一中枢的离开段 / 第二中枢的进入段),因此包含 second.bi_start。
+            departures = [j for j in range(first["formed_bi"] + 1,
+                                           second["bi_start"] + 1)
+                          if not bis[j]["unfinished"] and bis[j]["dir"] == bout["dir"]
+                          and _leaves_center(bis[j], first)]
+            if departures:
+                return departures[-1], "trend", [first, second], (
+                    "比较两个同向不重叠中枢各自的离开笔;中枢仅取后笔开始前已形成的结构")
+
+    if active and active["formed_bi"] < previous and \
+            previous >= active["bi_start"] and \
+            _touches_center(bis[previous], active) and _touches_center(bout, active):
+        return previous, "panzheng", [active], (
+            "比较同一已形成中枢关联的两次同向波动;只提示局部力度衰减")
+
+    return previous, "momentum", [], (
+        "相邻同向笔力度衰减,但无法验证两个中枢离开段或同一已形成中枢的比较结构")
+
+
+def _comparison_leg(b, bi_idx):
+    return dict({key: b[key] for key in ("start_ts", "end_ts", "start_price", "end_price",
+                                        "start_idx", "end_idx")}, bi_idx=bi_idx)
+
+
 def detect_beichi(bis, zss, candles, bar):
-    """背驰:比较前后两个同向笔(前段=进入段近似,后段=离开段)。
-    门槛:后段创新低/新高;有效条件:MACD 同向柱面积比 后/前 < 0.7(手册判据,不改)。
-    结构确认 struct_ok:后段紧邻某已完成中枢(中枢最后一笔在 i-2/i-1)且创出
-    脱离中枢区间的极值 = 标准背驰;否则为"宽口径"(单边行情中段的相邻笔动能
-    衰减,误报率更高),评分 ×0.85 降档并在前端降档展示。
-    趋势/盘整判别以该紧邻中枢为锚:它与其前一个中枢同向依次移动 = 趋势背驰
-    (无紧邻中枢一律记盘整,防止历史无关中枢误标趋势多得 15 分)。
-    返回 [{kind, dir, k_idx, price, ts, area_ratio, score, score_detail, bi_idx,
-           struct_ok}]"""
+    """按候选当时的笔前缀识别 trend / panzheng / momentum。
+
+    保留 zss 参数兼容现有调用,但最终中枢会包含之后的延伸,不能用于历史分类。
+    每笔开始前重建已形成中枢,先据结构选择比较对象,然后检验创新极值和面积比。
+    仍以笔近似次级别走势,不是完整线段级别的递归缠论。
+    comparison 保存实际比较笔、中枢快照和判断时点,供图表核对。
+    """
     close = pd.Series([c["c"] for c in candles], dtype=float)
     dif_s, _, _ = macd(close)
     dif = dif_s.tolist()
@@ -217,8 +106,13 @@ def detect_beichi(bis, zss, candles, bar):
 
     out = []
     for i in range(2, len(bis)):
-        bin_, bout = bis[i - 2], bis[i]
-        if bin_["dir"] != bout["dir"] or bin_["unfinished"] or bout["unfinished"]:
+        bout = bis[i]
+        if bout["unfinished"] or bis[i - 2]["unfinished"]:
+            continue
+        centers = logical_centers(build_zhongshu(bis[:i], candles))
+        before_idx, kind, related, reason = _divergence_comparison(bis, i, centers)
+        bin_ = bis[before_idx]
+        if bin_["dir"] != bout["dir"] or bin_["unfinished"]:
             continue
         d = bout["dir"]
         # 门槛:后段须创新低/新高
@@ -226,6 +120,14 @@ def detect_beichi(bis, zss, candles, bar):
             continue
         if d == "up" and not _bi_high(bout) > _bi_high(bin_):
             continue
+        if kind == "trend":
+            # 必须是这一轮趋势的新极值;不能在更低低点之后的反弹回踩上
+            # 继续对旧中枢离开段比力度,将更高低点误标为又一个一买。
+            preceding = bis[before_idx:i]
+            if d == "down" and bout["end_price"] >= min(_bi_low(b) for b in preceding):
+                continue
+            if d == "up" and bout["end_price"] <= max(_bi_high(b) for b in preceding):
+                continue
         a_in = _seg_area(hist, bin_, d)
         a_out = _seg_area(hist, bout, d)
         if a_in <= 0:
@@ -234,37 +136,20 @@ def detect_beichi(bis, zss, candles, bar):
         if ratio >= 0.7:
             continue  # 手册:<0.7 才是有效背驰
 
-        # 结构确认:bout 是否为紧邻中枢的离开段
-        #(中枢以最后一笔落在 i-2/i-1 为"紧邻",且 bout 创出脱离中枢区间的极值)
-        znear = None
-        for z in zss:
-            if i - 2 <= z["bi_end"] <= i - 1 and (
-                    (d == "down" and _bi_low(bout) < z["zd"]) or
-                    (d == "up" and _bi_high(bout) > z["zg"])):
-                znear = z
-                break
-        struct_ok = znear is not None
-
-        # 趋势 vs 盘整:以紧邻中枢为锚,它与其前一个中枢同向依次移动 = 趋势背驰。
-        # 无紧邻中枢一律记盘整——历史无关中枢不能参与分类(否则误得趋势 15 分)
-        kind = "panzheng"
-        if struct_ok:
-            prior = [z for z in zss if z["bi_end"] <= znear["bi_end"]]
-            if len(prior) >= 2:
-                z1, z2 = prior[-2], prior[-1]  # z2 即紧邻中枢
-                if (d == "down" and z1["zd"] >= z2["zg"]) or \
-                   (d == "up" and z1["zg"] <= z2["zd"]):
-                    kind = "trend"
-
+        struct_ok = kind != "momentum"
         score, detail = _score_beichi(ratio, kind, bin_, bout, dif, candles, lvl_w)
         if not struct_ok:
-            score = round(score * 0.85, 1)  # 宽口径降档(手册评分器本身不动)
+            score = round(score * 0.85, 1)
         out.append({
             "kind": kind, "dir": d,
             "k_idx": bout["end_idx"], "price": bout["end_price"],
             "ts": bout["end_ts"], "area_ratio": round(ratio, 4),
             "score": score, "score_detail": detail,
             "bi_idx": i, "struct_ok": struct_ok,
+            "area_in": round(a_in, 8), "area_out": round(a_out, 8), "reason": reason,
+            "comparison": {"before": _comparison_leg(bin_, before_idx),
+                           "after": _comparison_leg(bout, i),
+                           "centers": [dict(z) for z in related], "as_of_bi": i},
         })
     return out
 
@@ -331,7 +216,7 @@ def detect_beili(bis, bcs, candles, bar):
     - 隐藏背离(中继):价未创新极值(低点抬高/高点降低)而指标创出新极值
       → 顺原方向的回调结束信号,类二/三类买卖点,≥3 票成立(更严防噪音)。
     五票 = MACD柱 / DIF / RSI6 / KDJ-J / 量能,票越多越可靠。
-    与缠论背驰同点的常规背离不再重复输出(已有更强的⚡背驰+B1/S1)。
+    与已有结构背驰/动能衰减提示同点的常规背离不再重复输出。
     返回 [{type: DB|DS, subtype: regular|hidden, k_idx, price, ts,
            votes, score, grade, note}],评分 0-100 越高越好(乘级别权重)。"""
     if len(candles) < 30:
@@ -424,7 +309,7 @@ def detect_beili(bis, bcs, candles, bar):
             "type": "DB" if buy else "DS", "subtype": subtype,
             "k_idx": e2, "price": b2["end_price"], "ts": b2["end_ts"],
             "votes": votes, "score": score, "grade": _grade(score),
-            "note": note,
+            "note": note, "source_bi_idx": i,
         })
     out.sort(key=lambda p: p["k_idx"])
     return out
@@ -489,25 +374,25 @@ def find_bsp(bis, zss, bcs, candles, bar):
         seg = candles[b["start_idx"]: b["end_idx"] + 1]
         return sum(c["vol"] for c in seg) / max(len(seg), 1)
 
-    def emit(type_, k_idx, price, ts, note, raw):
+    def emit(type_, k_idx, price, ts, note, raw, **metadata):
         score = min(100.0, round(raw * lvl_w, 1))
         cf = confirms_at(type_, k_idx)
         out.append({"type": type_, "k_idx": k_idx, "price": price, "ts": ts,
                     "note": note, "score": score, "grade": _grade(score),
-                    "confirms": cf, "confirm_n": len(cf)})
+                    "confirms": cf, "confirm_n": len(cf), **metadata})
 
-    # 1类:有效背驰的端点。评分主要继承背驰评分(已含面积比/趋势盘整/结构等)
+    # 1/2类仅由结构已验证的趋势背驰产生;盘整和无结构动能提示不得冒充一买。
     for bc in bcs:
+        if bc.get("kind") != "trend" or bc.get("struct_ok") is not True:
+            continue
         bc_raw = bc["score"] / lvl_w if lvl_w > 0 else bc["score"]  # 还原未加权分
         raw1 = 40 + bc_raw * 0.4
-        kind_cn = "趋势" if bc["kind"] == "trend" else "盘整"
-        wide = "" if bc.get("struct_ok", True) else ",宽口径(附近无紧邻中枢)"
         if bc["dir"] == "down":
             emit("B1", bc["k_idx"], bc["price"], bc["ts"],
-                 f"{kind_cn}底背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}{wide}", raw1)
+                 f"趋势底背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}", raw1, source_bi_idx=bc["bi_idx"])
         else:
             emit("S1", bc["k_idx"], bc["price"], bc["ts"],
-                 f"{kind_cn}顶背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}{wide}", raw1)
+                 f"趋势顶背驰,面积比{bc['area_ratio']},背驰评分{bc['score']}", raw1, source_bi_idx=bc["bi_idx"])
 
         # 2类:1类点之后,次级别回调/反弹不破前极值
         i = bc["bi_idx"]
@@ -524,44 +409,18 @@ def find_bsp(bis, zss, bcs, candles, bar):
             if bc["dir"] == "down" and b_back["dir"] == "down" \
                     and b_back["end_price"] > bc["price"]:
                 emit("B2", b_back["end_idx"], b_back["end_price"], b_back["end_ts"],
-                     f"1买后回调不破前低 {bc['price']}({extra})", raw2)
+                     f"1买后回调不破前低 {bc['price']}({extra})", raw2, source_bi_idx=i + 2)
             if bc["dir"] == "up" and b_back["dir"] == "up" \
                     and b_back["end_price"] < bc["price"]:
                 emit("S2", b_back["end_idx"], b_back["end_price"], b_back["end_ts"],
-                     f"1卖后反弹不过前高 {bc['price']}({extra})", raw2)
+                     f"1卖后反弹不过前高 {bc['price']}({extra})", raw2, source_bi_idx=i + 2)
 
-    # 3类:离开中枢后回踩/回抽不回中枢
-    for zs in zss:
-        k = zs["bi_end"] + 1
-        if k + 1 >= len(fin):
-            continue
-        b_leave, b_back = fin[k], fin[k + 1]
-        if b_back["unfinished"]:
-            continue
-        zs_h = zs["zg"] - zs["zd"]
-        leave_rng = abs(b_leave["end_price"] - b_leave["start_price"])
-        power = leave_rng / zs_h if zs_h > 0 else 0     # 离开段突破力度
-        shrink = vol_rate(b_back) < vol_rate(b_leave)   # 回踩/回抽缩量
-
-        def raw3(depth):
-            r = 55
-            r += 15 if depth <= 0.01 else (8 if depth <= 0.03 else 3)   # 回踩浅
-            r += 15 if power >= 1.5 else (8 if power >= 0.8 else 3)     # 突破有力
-            r += 8 if shrink else 0
-            return r
-
-        if b_leave["dir"] == "up" and _bi_high(b_leave) > zs["zg"] \
-                and b_back["dir"] == "down" and b_back["end_price"] > zs["zg"]:
-            depth = (b_back["end_price"] - zs["zg"]) / zs["zg"]
-            emit("B3", b_back["end_idx"], b_back["end_price"], b_back["end_ts"],
-                 f"回踩不破中枢上沿 ZG={zs['zg']}" + (",缩量" if shrink else ""),
-                 raw3(abs(depth)))
-        if b_leave["dir"] == "down" and _bi_low(b_leave) < zs["zd"] \
-                and b_back["dir"] == "up" and b_back["end_price"] < zs["zd"]:
-            depth = (zs["zd"] - b_back["end_price"]) / zs["zd"]
-            emit("S3", b_back["end_idx"], b_back["end_price"], b_back["end_ts"],
-                 f"回抽不上中枢下沿 ZD={zs['zd']}" + (",缩量" if shrink else ""),
-                 raw3(abs(depth)))
+    # 离开笔可与蓝框相交；来源中枢必须在它之前已经成立。
+    for candidate in third_point_candidates(bis, candles):
+        c = dict(candidate)
+        type_ = c.pop("type")
+        emit(type_, c.pop("k_idx"), c.pop("price"), c.pop("ts"),
+             c.pop("note"), c.pop("raw"), **c)
 
     out.sort(key=lambda p: p["k_idx"])
     return out
@@ -578,40 +437,83 @@ def summarize(bis, zss, bcs, bsp, candles):
     if fin:
         b = fin[-1]
         s["last_bi"] = {"dir": b["dir"], "start_price": b["start_price"],
-                        "end_price": b["end_price"], "end_ts": b["end_ts"]}
+                        "end_price": b["end_price"], "end_ts": b["end_ts"],
+                        "locked": b["locked"], "state": b["state"]}
     if zss:
         z = zss[-1]
-        extending = z["bi_end"] >= len(fin) - 1 if fin else False
+        extending = z.get("extending", z["bi_end"] >= len(fin) - 1 if fin else False)
         s["last_zs"] = {"zg": z["zg"], "zd": z["zd"], "gg": z["gg"], "dd": z["dd"],
-                        "extending": extending}
+                        "extending": extending, **{key: z.get(key) for key in
+                        ("locked", "state", "bi_count", "extension_pending", "known_idx", "known_at",
+                         "span_known_idx", "span_known_at", "locked_idx", "locked_at")}}
         if last_price is not None:
             s["price_pos"] = "above_zg" if last_price > z["zg"] else \
                              ("below_zd" if last_price < z["zd"] else "inside")
     return s
 
 
+BAR_MS = {"1m": 60000, "5m": 300000, "15m": 900000, "1H": 3600000,
+          "4H": 14400000, "1D": 86400000, "1W": 604800000}
+
+
+def _signal_availability(signals, bis, candles, with_confirms=False):
+    """继承来源笔的真实锁定事件；端点早于最新笔不等于已经锁定。"""
+    by_end = {b["end_idx"]: i for i, b in enumerate(bis) if not b["unfinished"]}
+    for signal in signals:
+        index = signal.get("source_bi_idx", signal.get("bi_idx", by_end.get(signal["k_idx"])))
+        if index is None:
+            signal.update(locked=False, state="provisional", locked_idx=None, locked_at=None)
+            continue
+        source = bis[index]
+        signal["source_bi_idx"] = index
+        # 三类点自身的中枢依赖也必须已锁定。
+        locked = source.get("locked", False) and signal.get("locked", True)
+        known = max(source["known_idx"], signal.get("known_idx", 0))
+        if with_confirms:
+            known = max(known, min(signal["k_idx"] + 2, len(candles) - 1))
+        signal.update(known_idx=known, locked=locked,
+                      state="locked" if locked else "provisional")
+        if locked:
+            signal["locked_idx"] = max(known, source["locked_idx"], signal.get("locked_idx") or 0)
+        else:
+            signal["locked_idx"] = None
+            signal["locked_at"] = None
+
+
+def _normalize_event_times(value, candles, duration):
+    """K线 ts 是开盘时间，事件在对应K线收盘才可知；保留极值锚点时间。"""
+    if isinstance(value, dict):
+        for key, idx in list(value.items()):
+            if key.endswith(("known_idx", "locked_idx")):
+                value[key[:-4] + "_at"] = (candles[idx].get("close_ts", candles[idx]["ts"] + duration)
+                                           if isinstance(idx, int) and 0 <= idx < len(candles) else None)
+        for child in value.values():
+            _normalize_event_times(child, candles, duration)
+    elif isinstance(value, list):
+        for child in value:
+            _normalize_event_times(child, candles, duration)
+
+
 def analyze(candles, bar):
     """主入口。candles 为升序、仅含已完结K线。"""
     if len(candles) < 10:
-        return {"fenxing": [], "bi": [], "zhongshu": [], "beichi": [],
-                "beili": [], "bsp": [], "summary": {}}
+        return {"fenxing": [], "bi": [], "xianduan": [], "zhongshu": [],
+                "zhongshu_display": [], "beichi": [], "beili": [], "bsp": [], "summary": {}}
     merged = merge_klines(candles)
     fenxing = find_fenxing(merged, candles)
-    bis, _ = build_bi(fenxing, candles)
+    bis, _ = build_bi(fenxing, candles, merged)
     zss = build_zhongshu(bis, candles)
-    bcs = detect_beichi(bis, zss, candles, bar)
+    display_zss = logical_centers(zss)
+    segments = build_segments(bis, candles)
+    bcs = detect_beichi(bis, display_zss, candles, bar)
     bli = detect_beili(bis, bcs, candles, bar)
-    bsp = find_bsp(bis, zss, bcs, candles, bar)
-    # 锁定状态:信号所在笔端点之后已有新的确认笔 → 锁定;
-    # 位于最新确认笔端点上的信号未锁定,若出现更极端分型,端点和信号仍会移动
-    fin = [b for b in bis if not b["unfinished"]]
-    last_end = fin[-1]["end_idx"] if fin else -1
-    for p in bsp:
-        p["locked"] = p["k_idx"] < last_end
-    for b in bcs:
-        b["locked"] = b["k_idx"] < last_end
-    for b in bli:
-        b["locked"] = b["k_idx"] < last_end
-    summary = summarize(bis, zss, bcs, bsp, candles)
-    return {"fenxing": fenxing, "bi": bis, "zhongshu": zss,
-            "beichi": bcs, "beili": bli, "bsp": bsp, "summary": summary}
+    bsp = find_bsp(bis, display_zss, bcs, candles, bar)
+    _signal_availability(bcs, bis, candles)
+    _signal_availability(bli, bis, candles)
+    _signal_availability(bsp, bis, candles, with_confirms=True)
+    summary = summarize(bis, display_zss, bcs, bsp, candles)
+    result = {"fenxing": fenxing, "bi": bis, "xianduan": segments,
+              "zhongshu": zss, "zhongshu_display": display_zss,
+              "beichi": bcs, "beili": bli, "bsp": bsp, "summary": summary}
+    _normalize_event_times(result, candles, BAR_MS[bar])
+    return result

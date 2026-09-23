@@ -16,6 +16,37 @@ from quant.storage import ResearchStore
 from quant.strategy import evaluate, signal_key
 
 
+def structural_replay_dataset():
+    """Real OHLCV with two descending centers, a weaker final low, and a holding pullback.
+
+    The first 512 candles warm MACD up without adding unrelated strokes. Ten
+    candles per leg make confirmed strokes visible after the replay's 4H warmup.
+    This fixture is local to the causality test; the shared demo stays unchanged.
+    """
+    points = [140, 120, 135, 122, 134, 121, 130, 100,
+              110, 101, 109, 102, 108, 101, 106, 90, 105, 95, 110, 103, 112]
+    prices = [140 - (512 - i) * 0.001 for i in range(512)]
+    for start, end in zip(points, points[1:]):
+        prices.extend(start + (end - start) * j / 10 for j in range(10))
+    prices.append(points[-1])
+    while len(prices) < 768:
+        prices.append(prices[-1] + 0.01)
+    rows = []
+    for index, price in enumerate(prices):
+        close = price * 10 + 600
+        opening = rows[-1]["c"] if rows else close
+        rows.append({"ts": index * 900000, "o": opening, "c": close,
+                     "h": max(opening, close) + 0.1, "l": min(opening, close) - 0.1,
+                     "vol": 100, "confirm": 1})
+    big = []
+    for index in range(0, len(rows), 16):
+        group = rows[index:index + 16]
+        big.append({"ts": group[0]["ts"], "o": group[0]["o"], "c": group[-1]["c"],
+                    "h": max(c["h"] for c in group), "l": min(c["l"] for c in group),
+                    "vol": sum(c["vol"] for c in group), "confirm": 1})
+    return {"inst": "ETH-USDT-SWAP", "15m": rows, "4H": big}
+
+
 class DataTests(unittest.TestCase):
     def test_unclosed_tail_excluded(self):
         rows = dataset()["15m"][:3]
@@ -40,6 +71,35 @@ class DataTests(unittest.TestCase):
                     closed_series(rows, "15m")
 
 
+class StructureIntegrationTests(unittest.TestCase):
+    def test_signal_and_segment_events_are_available_at_reported_close(self):
+        import chan
+
+        rows = structural_replay_dataset()["15m"]
+        final = chan.analyze(rows, "15m")
+        cached = {}
+        checked = 0
+        for collection in ("bi", "zhongshu", "zhongshu_display", "beichi", "beili", "bsp", "xianduan"):
+            for record in final[collection]:
+                for key in ("known", "span_known", "locked"):
+                    index = record.get(key + "_idx")
+                    if index is not None:
+                        self.assertEqual(record[key + "_at"], rows[index]["ts"] + 900000)
+                if collection not in ("beichi", "beili", "bsp", "xianduan") or not record["locked"]:
+                    continue
+                at = record["locked_idx"]
+                if at not in cached:
+                    cached[at] = chan.analyze(rows[:at + 1], "15m")
+                matches = [r for r in cached[at][collection]
+                           if r.get("k_idx", r.get("end_idx")) == record.get("k_idx", record.get("end_idx"))
+                           and r.get("type", r.get("dir")) == record.get("type", record.get("dir"))]
+                self.assertTrue(matches, (collection, at))
+                self.assertTrue(matches[0]["locked"], (collection, at))
+                self.assertEqual(matches[0].get("kind"), record.get("kind"))
+                checked += 1
+        self.assertGreaterEqual(checked, 4)
+
+
 class StrategyTests(unittest.TestCase):
     def setUp(self):
         self.config = StrategyConfig()
@@ -60,6 +120,15 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result["action"], "long")
         self.assertGreater(result["estimated_entry"], 100)
         self.assertLess(result["net_rr"], (110 - 100) / (100 - 98 * 0.998))
+
+    def test_newly_locked_point_survives_two_later_strokes_then_expires(self):
+        self.small["bi"] = [{"end_idx": 1, "locked": True},
+                            {"end_idx": 8, "locked": False},
+                            {"end_idx": 14, "locked": False}]
+        self.assertEqual(self.outcome()["action"], "long")
+        self.small["bi"][1]["locked"] = True
+        self.small["bi"].append({"end_idx": 20, "locked": False})
+        self.assertEqual(self.outcome()["reason"], "no_active_signal")
 
     def test_hard_blocks(self):
         original_big, original_small = copy.deepcopy(self.big), copy.deepcopy(self.small)
@@ -166,7 +235,12 @@ class ReplayTests(unittest.TestCase):
                                   (run_id,)).fetchall()
 
     def test_real_algorithm_prefix_invariance(self):
-        full = dataset()
+        import chan
+
+        full = structural_replay_dataset()
+        structure = chan.analyze(full["15m"], "15m")
+        self.assertTrue(any(s["kind"] == "trend" for s in structure["beichi"]))
+        self.assertEqual({s["type"] for s in structure["bsp"]}, {"B1", "B2", "S3"})
         prefix = {"inst": full["inst"], "15m": full["15m"][:704], "4H": full["4H"][:44]}
         short = run_replay(prefix, self.store)
         long = run_replay(full, self.store)

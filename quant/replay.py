@@ -16,7 +16,8 @@ from .strategy import evaluate, signal_key
 
 def source_fingerprint():
     root = Path(__file__).resolve().parent.parent
-    paths = [root / name for name in ("chan.py", "indicators.py", "decision.py")]
+    paths = [root / name for name in ("chan.py", "chan_strokes.py", "chan_centers.py",
+                                     "chan_segments.py", "indicators.py", "decision.py")]
     paths += sorted((root / "quant").glob("*.py"))
     paths += sorted((root / "quant" / "migrations").glob("*.sql"))
     return {str(p.relative_to(root)): sha256(p.read_bytes()).hexdigest() for p in paths}

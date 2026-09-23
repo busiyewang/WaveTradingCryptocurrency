@@ -3,14 +3,14 @@
 口径(与手册及单级别决策一致,评分统一"越高越好" 0-100):
 - 大级别关键位 = 结构位为主(中枢 ZG/ZD、最近前高/前低笔端点),EMA20/40 仅作辅助;
 - "正在测试"判定 = 现价与关键位距离 ≤ 容差 tol(0.6 × 大级别近20根平均振幅,自适应);
-- 小级别确认信号 = 活跃(位于最近两个确认笔端点范围内)的 背驰/指标背离/买卖点;
+- 小级别确认信号 = 最新锁定笔及之后的活跃背驰/指标背离/买卖点;
   信号价格落在某个大级别关键位 ±tol 内 → "已验证";远离一切关键位 → 杂波,忽略;
 - 硬性过滤与 decision.py 一致:与大级别方向冲突 → 禁止操作;盈亏比<1:2 → 观望并给等待价;
 - 刹车印(持仓检查,手册"确认上涨/下跌结束"流程):
   背离预警 → 放量滞涨 → 收盘连续跌破(站上)小级别 EMA20 才算确认,背了又背不是离场理由。
 """
 
-from decision import _direction, STOP_BUFFER
+from decision import _direction, STOP_BUFFER, active_signal_cutoff
 
 BAR_RANK = {"1m": 0, "5m": 1, "15m": 2, "1H": 3, "4H": 4, "1D": 5, "1W": 6}
 # 推荐的大→小级别搭配(手册区间套惯例)
@@ -95,18 +95,25 @@ def _small_signals(small, levels, tol):
     fin = [b for b in ch["bi"] if not b.get("unfinished")]
     if not fin:
         return []
-    cutoff = fin[-2]["end_idx"] if len(fin) >= 2 else fin[-1]["start_idx"]
+    cutoff = active_signal_cutoff(fin)
 
     items = []
     for b in ch.get("beichi") or []:
         if b["k_idx"] < cutoff:
             continue
         buy = b["dir"] == "down"
-        items.append({"tag": ("底" if buy else "顶") + "背驰",
+        kind = b.get("kind") if b.get("struct_ok") is True else "momentum"
+        if kind not in ("trend", "panzheng"):
+            kind = "momentum"
+        tag = (("趋势" if kind == "trend" else "盘整") +
+               ("底" if buy else "顶") + "背驰") if kind != "momentum" else \
+              ("下跌" if buy else "上涨") + "动能衰减"
+        items.append({"tag": tag, "kind": kind, "entry_eligible": kind == "trend",
                       "side": "long" if buy else "short", "hidden": False,
                       "price": b["price"], "ts": b["ts"], "k_idx": b["k_idx"],
                       "score": b.get("score"), "locked": b.get("locked"),
-                      "note": f"MACD面积比 {b['area_ratio']}"})
+                      "note": f"MACD面积比 {b['area_ratio']}" +
+                              ("；仅作观察，不作为入场确认" if kind != "trend" else "")})
     for s in ch.get("beili") or []:
         if s["k_idx"] < cutoff:
             continue
@@ -272,7 +279,8 @@ def analyze(big, small, big_bar, small_bar):
     testing.sort(key=lambda lv: (lv["kind"] != "structure", abs(lv["dist_pct"])))  # 结构位优先
     tested = testing[0] if testing else None
 
-    verified = [s for s in signals if s["verify_level"]]
+    # 位置验证不等于入场确认：盘整背驰和无中枢结构的动能衰减仅作观察。
+    verified = [s for s in signals if s["verify_level"] and s.get("entry_eligible", True)]
     act = verified[-1] if verified else None
 
     res = {"big_bar": big_bar, "small_bar": small_bar, "live": _rnd(live),
@@ -283,8 +291,15 @@ def analyze(big, small, big_bar, small_bar):
 
     tolp = round(tol * 100, 2)
     if not act:
-        if tested:
-            want = "底背驰 / 背离B / B1-B3" if tested["role"] == "support" else "顶背驰 / 背离S / S1-S3"
+        observations = [s for s in signals if s["verify_level"] and not s.get("entry_eligible", True)]
+        if observations:
+            observed = observations[-1]
+            res.update(action="wait", score=0, scenario="仅有观察信号", signal=observed,
+                       reason=f"{small_bar} {observed['tag']} @ {_rnd(observed['price'])}"
+                              f"接近 {big_bar} {observed['verify_level']}，仅说明局部动能减弱，"
+                              "不构成趋势背驰或一类买卖点。等待符合结构的买卖点或其他确认。")
+        elif tested:
+            want = "趋势底背驰 / 背离B / B1-B3" if tested["role"] == "support" else "趋势顶背驰 / 背离S / S1-S3"
             res.update(action="wait", score=0, scenario="正在测试关键位",
                        reason=f"现价 {_rnd(live)} 正在测试 {big_bar} {tested['name']} {tested['price']}"
                               f"(距离 {tested['dist_pct']}%),但 {small_bar} 还没有确认信号。"
