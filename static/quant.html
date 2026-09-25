@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>缠论 · 量化工作台预览</title>
+  <link rel="stylesheet" href="/static/quant.css">
+</head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/"><span class="brand-icon">缠</span><span>缠论<span class="brand-sub">QUANT WORKSPACE</span></span></a>
+  <div class="nav-caption">交易空间</div>
+  <nav aria-label="工作台导航">
+    <button class="nav-item active" data-section="workspace"><span>◫</span>量化工作台</button>
+    <button class="nav-item" data-section="research"><span>↺</span>信号回放</button>
+    <button class="nav-item" data-section="activity"><span>≡</span>订单与持仓</button>
+    <button class="nav-item" data-section="risk"><span>◇</span>风控设置</button>
+  </nav>
+  <div class="nav-caption second">分析工具</div>
+  <a class="nav-item" href="/"><span>⌁</span>单周期分析<span class="external">↗</span></a>
+  <a class="nav-item" href="/multi"><span>▥</span>多级别联动<span class="external">↗</span></a>
+  <div class="sidebar-bottom"><div class="environment"><i></i>界面设计预览</div><p>示例数据 · 无账户连接<br>所有操作仅在当前页面演示</p><div class="build">CHAN-B23 <span>v1.0 / DESIGN</span></div></div>
+</aside>
+<div class="app-shell">
+  <header class="topbar"><div class="breadcrumb">交易空间 <span>/</span> <b>量化工作台</b></div><div class="top-meta"><span class="chip">OKX · USDT 永续</span><span class="preview-badge">设计预览</span></div></header>
+  <main>
+    <section id="workspace">
+      <div class="page-heading"><div><div class="eyebrow">STRATEGY OVERVIEW</div><h1>量化工作台<span class="live-status" id="run-status">演示待启动</span></h1><p>看清信号，再让规则执行。</p></div><div class="heading-actions"><div class="segmented" aria-label="预览模式"><button class="selected" data-mode="research" aria-pressed="true">研究回放</button><button data-mode="paper" aria-pressed="false">模拟盘预览</button></div><button class="primary" id="play">▶ 开始回放演示</button></div></div>
+      <div class="preview-notice"><span>ⓘ</span><span>这是可交互的页面原型，行情、信号和账户均为样例。实际回放引擎尚未接入此页面。</span><span class="notice-right">不发送交易订单</span></div>
+      <div class="manual-links"><span>使用前先读</span><a href="quant-design-factors.html">01 系统设计与量化因子 ↗</a><a href="quant-strategies-guide.html">02 量化策略与使用指南 ↗</a></div>
+      <div class="stats-grid">
+        <article class="stat"><div class="stat-label" id="stat-label">样例研究区间 <span>↗</span></div><div class="stat-value" id="stat-value">08.01 <span>—</span> 08.31</div><div class="stat-foot" id="stat-foot">2026 年 · 15m 收盘事件</div></article>
+        <article class="stat"><div class="stat-label">策略配置 <span>◈</span></div><div class="stat-value">4H <span>→</span> 15m</div><div class="stat-foot">大级别定方向 · 小级别找确认</div></article>
+        <article class="stat"><div class="stat-label">样例信号筛选 <span>⌁</span></div><div class="stat-value">24 <small>/ 186</small></div><div class="stat-foot"><span class="green">12.9%</span> 通过率 · 非成交率</div></article>
+        <article class="stat"><div class="stat-label">策略单笔风险 <span>◇</span></div><div class="stat-value" id="risk-stat">0.50<small>%</small></div><div class="stat-foot">按止损距离计算仓位</div></article>
+      </div>
+      <div class="workspace-grid">
+        <section class="panel chart-panel">
+          <div class="chart-heading"><div class="instrument"><span class="coin-icon" id="coin-icon">Ξ</span><div><div class="symbol"><select id="instrument" aria-label="交易品种"><option value="ETH">ETH / USDT</option><option value="BTC">BTC / USDT</option></select><span class="small-tag">永续</span></div><div class="muted tiny">OKX · 样例行情</div></div></div><div class="quote"><strong id="quote">3,142.60</strong><span class="green">+1.28% <span class="muted">样例涨幅</span></span></div></div>
+          <div class="chart-tools"><div class="periods"><button class="selected" data-period="15m">15m</button><button data-period="4H">4H</button></div><div class="overlays"><label><input id="show-bi" type="checkbox" checked>笔</label><label><input id="show-zs" type="checkbox" checked>中枢</label><label><input id="show-signals" type="checkbox" checked>买卖点</label></div><span class="chart-label">收盘数据 · 演示</span></div>
+          <div class="legend"><span><i class="legend-line white"></i>EMA 5</span><span><i class="legend-line blue"></i>EMA 20</span><span><i class="legend-line orange"></i>缠论笔</span><span class="legend-right">UTC</span></div>
+          <div id="market-chart" role="img" aria-label="样例K线、中枢及缠论笔结构图"></div>
+          <div class="chart-bottom"><span><i class="status-dot"></i>4H 方向 <b class="green">多头</b></span><span>当前结构 <b>回踩中枢上沿</b></span><span>版本 <b>CHAN-B23 v1</b></span></div>
+        </section>
+        <section class="panel decision-panel">
+          <div class="panel-title"><h2>当前决策</h2><span class="small-tag">样例</span></div>
+          <div class="decision-label" id="decision-label"><span class="decision-dot"></span>观望</div>
+          <h3 id="decision-title">等待 B2 信号锁定</h3><p class="decision-copy" id="decision-copy">方向与结构位置已满足。下一笔确认后，才进入风险与下单检查。</p>
+          <div class="checklist"><div><span class="check">✓</span><span>4H 方向一致</span><b>多头</b></div><div><span class="check">✓</span><span>结构位验证</span><b>中枢上沿</b></div><div><span id="lock-icon" class="pending">◷</span><span>15m 信号锁定</span><b id="lock-text" class="amber">待确认</b></div><div><span class="check">✓</span><span>预计净盈亏比</span><b>1 : 2.16</b></div></div>
+          <div class="price-plan"><div><span>参考入场</span><b id="entry">3,142.60</b></div><div><span><i class="mini-dot red"></i>结构止损</span><b id="stop">3,106.00</b></div><div><span><i class="mini-dot green-bg"></i>结构目标</span><b id="target">3,241.50</b></div></div>
+          <div class="decision-note" id="decision-note">未锁定信号不入场，评分不能覆盖硬性规则。</div>
+        </section>
+      </div>
+    </section>
+    <section id="research" class="panel replay-panel"><div class="replay-top"><div><h2>信号时间回放 <span class="small-tag">交互演示</span></h2><p>拖动时间轴，查看“出现信号”到“允许参与交易”的区别。</p></div><div class="replay-time"><span id="replay-time">10:45</span><small>2026 / 08 / 18 UTC</small></div></div><input type="range" id="timeline" min="0" max="8" value="3" aria-label="信号回放时间"><div class="timeline-labels"><span>10:00 极值出现</span><span>10:30 首次观察</span><span>11:15 信号锁定</span><span>12:00</span></div><div class="timeline-caption" id="timeline-caption">10:45 · B2 已出现但尚未锁定，继续观察。图上极值时间不等于入场时间。</div></section>
+    <div class="bottom-grid">
+      <section id="activity" class="panel activity-panel"><div class="activity-heading"><div class="table-tabs" role="tablist" aria-label="交易记录"><button class="selected" data-table="signals" role="tab" aria-selected="true">信号记录 <span>4</span></button><button data-table="positions" role="tab" aria-selected="false">持仓预览 <span>1</span></button><button data-table="orders" role="tab" aria-selected="false">订单预览 <span>3</span></button></div><span class="muted tiny">以下为样例记录</span></div><div class="table-wrap" id="activity-table"></div><div class="activity-footer" id="activity-footer">每个信号保留当时的观察状态，不回填未来确认结果。</div></section>
+      <section id="risk" class="panel risk-panel"><div class="panel-title"><h2>策略与风控</h2><span class="small-tag">本页演示</span></div><div class="risk-toggle"><div><b>允许新增仓位</b><p id="pause-note">开启后仍需通过所有风控检查</p></div><label class="switch"><input type="checkbox" id="allow-entry" checked aria-label="允许新增仓位"><span></span></label></div><div class="risk-fields"><label>单笔风险 <span><input id="risk-input" type="number" min="0.1" max="1" step="0.1" value="0.5" aria-label="单笔风险百分比"> %</span></label><div><span>组合风险上限</span><b>1.00%</b></div><div><span>日 / 周亏损熔断</span><b>3% / 6%</b></div></div><div class="budget"><span>样例权益 10,000 USDT</span><div>本单风险预算 <b><span id="budget-value">50.00</span> <small>USDT</small></b></div></div><p class="risk-hint" id="risk-feedback" aria-live="polite">暂停新增仓位时，已有持仓的止损保护仍保留。</p></section>
+    </div>
+    <footer class="page-footer"><span>缠论量化 · 从可解释的信号，到可核对的执行</span><span>MySQL <i class="offline-dot"></i> 未连接 <span class="footer-sep">/</span> OKX API <i class="offline-dot"></i> 未连接</span></footer>
+  </main>
+</div>
+<script src="/static/quant.js"></script>
+</body></html>

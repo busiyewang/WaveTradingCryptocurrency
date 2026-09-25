@@ -97,6 +97,7 @@
     <div class="group" id="periods"></div>
     <span class="sep"></span>
     <a class="btn" href="/multi" title="大级别定方向,小级别找确认(区间套)">🔭 多级别</a>
+    <a class="btn" href="/static/quant.html" title="量化交易界面原型，使用样例数据">量化预览</a>
     <span class="sep"></span>
     <button id="refreshBtn" class="primary">⟳ 刷新</button>
     <label class="chk"><input type="checkbox" id="ckAuto" checked> 每分钟自动刷新</label>
@@ -105,8 +106,9 @@
     <div class="group">
       <label class="chk"><input type="checkbox" id="ckFx"> 分型</label>
       <label class="chk"><input type="checkbox" id="ckBi" checked> 笔</label>
+      <label class="chk" title="特征序列线段；紫色粗线，虚线为候选"><input type="checkbox" id="ckXd"> 线段</label>
       <label class="chk"><input type="checkbox" id="ckZs" checked> 中枢</label>
-      <label class="chk"><input type="checkbox" id="ckBc" checked> 背驰</label>
+      <label class="chk"><input type="checkbox" id="ckBc" checked> 背驰 / 动能衰减</label>
       <label class="chk"><input type="checkbox" id="ckDl" checked> 指标背离</label>
       <label class="chk"><input type="checkbox" id="ckBsp" checked> 买卖点</label>
       <label class="chk"><input type="checkbox" id="ckTri" checked> 收敛</label>
@@ -118,7 +120,7 @@
     <div class="col" id="colStruct"><h3>结构状态</h3><div class="muted">加载中…</div></div>
     <div class="col" id="colVol"><h3>量价 · 主力</h3><div class="muted">加载中…</div></div>
     <div class="col" id="colKR"><h3>KDJ · RSI</h3><div class="muted">加载中…</div></div>
-    <div class="col" id="colBc"><h3>背驰 · 形态</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colBc"><h3>背驰 · 动能衰减 · 形态</h3><div class="muted">加载中…</div></div>
     <div class="col" id="colBsp"><h3>买卖点(点击跳转)</h3><div class="muted">加载中…</div></div>
   </div>
   <div id="modalMask"><div id="modal">

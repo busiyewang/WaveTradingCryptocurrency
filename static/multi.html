@@ -95,12 +95,14 @@
     <span style="flex:1"></span>
     <div class="group">
       <label class="chk"><input type="checkbox" id="ckBi" checked> 笔</label>
+      <label class="chk" title="特征序列线段；紫色粗线，虚线为候选"><input type="checkbox" id="ckXd"> 线段</label>
       <label class="chk"><input type="checkbox" id="ckZs" checked> 中枢</label>
       <label class="chk"><input type="checkbox" id="ckSig" checked> 信号标注</label>
       <label class="chk"><input type="checkbox" id="ckLv" checked> 关键位线</label>
     </div>
   </div>
   <div id="verdict"><span class="muted">多级别决策加载中…</span></div>
+  <div class="muted" style="padding:3px 12px;flex:none">黄线=笔，紫色粗线=线段；虚线可调整。中枢按笔构建，同区间连续延伸合并展示；框左沿不代表当时已知。</div>
   <div id="charts">
     <div class="chartBox">
       <div class="chartHead" id="headBig">大级别 · 定方向 / 找关键位</div>
@@ -113,7 +115,7 @@
   </div>
   <div id="panel">
     <div class="col" id="colDir"><h3>大级别 · 方向与关键位</h3><div class="muted">加载中…</div></div>
-    <div class="col" id="colSig"><h3>小级别 · 确认信号</h3><div class="muted">加载中…</div></div>
+    <div class="col" id="colSig"><h3>小级别 · 信号与观察</h3><div class="muted">加载中…</div></div>
     <div class="col" id="colBrake"><h3>刹车印 · 持仓检查</h3><div class="muted">加载中…</div></div>
   </div>
   <script src="/static/klinecharts.min.js"></script>

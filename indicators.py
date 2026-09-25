@@ -1,7 +1,7 @@
 """技术指标计算:MACD / KDJ / RSI。
 
 公式与《缠论MACD币圈实战手册》及国内软件惯例一致:
-- MACD(12,26,9),HIST = 2 × (DIF − DEA)
+- MACD(10,20,5),HIST = 2 × (DIF − DEA)
 - KDJ(9,3,3),K/D 用 SMA(x,n,1) 平滑(即 alpha=1/n 的 EMA)
 - RSI 用 Wilder 平滑(SMA(x,n,1))
 """
@@ -17,7 +17,7 @@ def _sma_cn(series: pd.Series, n: int) -> pd.Series:
     return series.ewm(alpha=1.0 / n, adjust=False).mean()
 
 
-def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+def macd(close: pd.Series, fast: int = 10, slow: int = 20, signal: int = 5):
     """返回 (dif, dea, hist),hist = 2*(dif-dea)。"""
     ema_fast = close.ewm(span=fast, adjust=False).mean()
     ema_slow = close.ewm(span=slow, adjust=False).mean()

@@ -8,6 +8,28 @@
     loading: false,
   };
 
+  function beichiView(b) {
+    // 旧宽口径数据、缺失或未知分类都保守展示为动能衰减。
+    const kind = b.struct_ok === false || !['trend', 'panzheng'].includes(b.kind)
+      ? 'momentum' : b.kind;
+    const bottom = b.dir === 'down';
+    const views = {
+      trend: {
+        label: `趋势${bottom ? '底' : '顶'}背驰`, color: '#9a6700', rgb: '154,103,0',
+        note: '两个同向中枢对应离开段的力度比较。属于趋势背驰候选，仍需后续确认，不代表趋势必然反转。',
+      },
+      panzheng: {
+        label: `盘整${bottom ? '底' : '顶'}背驰`, color: '#3265a8', rgb: '50,101,168',
+        note: '同一已形成中枢关联的两次同向波动比较，只提示局部力度减弱，不直接生成一类买卖点。',
+      },
+      momentum: {
+        label: `${bottom ? '下跌' : '上涨'}动能衰减`, color: '#575f6b', rgb: '87,95,107',
+        note: '比较段出现力度减弱，但中枢结构不足以确认背驰，不对应一类买卖点。',
+      },
+    };
+    return { kind, ...views[kind] };
+  }
+
   /* ---------------- 图表初始化 ---------------- */
   klinecharts.registerOverlay({
     name: 'biLine',
@@ -19,7 +41,7 @@
       return [{
         type: 'line',
         attrs: { coordinates },
-        styles: { color: d.color || '#f0b90b', size: 1.4, style: d.dashed ? 'dashed' : 'solid', dashedValue: [4, 4] },
+        styles: { color: d.color || '#f0b90b', size: d.size || 1.4, style: d.dashed ? 'dashed' : 'solid', dashedValue: [4, 4] },
         ignoreEvent: true,
       }];
     },
@@ -29,13 +51,14 @@
     name: 'zsRect',
     totalStep: 3,
     lock: true,
-    createPointFigures: ({ coordinates }) => {
+    createPointFigures: ({ coordinates, overlay }) => {
       if (coordinates.length < 2) return [];
       const [a, b] = coordinates;
+      const pending = overlay.extendData?.locked !== true;
       return [{
         type: 'rect',
         attrs: { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) },
-        styles: { style: 'stroke_fill', color: 'rgba(76,141,255,0.10)', borderColor: 'rgba(76,141,255,0.85)', borderSize: 1 },
+        styles: { style: 'stroke_fill', color: pending ? 'rgba(76,141,255,0.04)' : 'rgba(76,141,255,0.10)', borderColor: pending ? 'rgba(76,141,255,0.50)' : 'rgba(76,141,255,0.85)', borderSize: 1, borderStyle: pending ? 'dashed' : 'solid', borderDashedValue: [4, 4] },
         ignoreEvent: true,
       }];
     },
@@ -132,7 +155,7 @@
     },
   }, true, { id: 'candle_pane' });
   chart.createIndicator('VOL', false, { height: 70 });
-  chart.createIndicator('MACD', false, { height: 90 });
+  chart.createIndicator({ name: 'MACD', calcParams: [10, 20, 5] }, false, { height: 90 });
   chart.createIndicator('KDJ', false, { height: 80 });
   chart.createIndicator('RSI_CN', false, { height: 80 });
 
@@ -181,7 +204,7 @@
   };
   $('instInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('goBtn').onclick(); });
   $('refreshBtn').onclick = () => loadData(true);
-  ['ckFx', 'ckBi', 'ckZs', 'ckBc', 'ckDl', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
+  ['ckFx', 'ckBi', 'ckXd', 'ckZs', 'ckBc', 'ckDl', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
 
   /* ---------------- 数据加载 ---------------- */
   async function loadData(force) {
@@ -282,13 +305,20 @@
     const mk = (o) => chart.createOverlay(Object.assign({ groupId: 'chan', lock: true }, o));
 
     if ($('ckBi').checked) {
-      ch.bi.forEach((b) => mk({
+      ch.bi.filter((b) => b.state !== 'blocked').forEach((b) => mk({
         name: 'biLine',
         points: [
           { timestamp: b.start_ts, value: b.start_price },
           { timestamp: b.end_ts, value: b.end_price },
         ],
-        extendData: { color: b.unfinished ? '#8b949e' : '#f0b90b', dashed: b.unfinished },
+        extendData: { layer: 'bi', color: b.unfinished ? '#8b949e' : '#f0b90b', dashed: b.locked !== true },
+      }));
+    }
+    if ($('ckXd').checked) {
+      (ch.xianduan || []).forEach((b) => mk({
+        name: 'biLine',
+        points: [{ timestamp: b.start_ts, value: b.start_price }, { timestamp: b.end_ts, value: b.end_price }],
+        extendData: { layer: 'xianduan', color: '#b388ff', size: 2.5, dashed: b.locked !== true },
       }));
     }
     if ($('ckFx').checked) {
@@ -301,27 +331,28 @@
       }));
     }
     if ($('ckZs').checked) {
-      ch.zhongshu.forEach((z) => mk({
+      (ch.zhongshu_display || ch.zhongshu).forEach((z) => mk({
         name: 'zsRect',
         points: [
           { timestamp: z.start_ts, value: z.zg },
           { timestamp: z.end_ts, value: z.zd },
         ],
+        extendData: { locked: z.locked, state: z.state },
       }));
     }
     if ($('ckBc').checked) {
       ch.beichi.forEach((b) => {
         const unlocked = b.locked === false;
-        const wide = b.struct_ok === false; // 宽口径:附近无紧邻中枢,可靠度较低
-        const bg = (unlocked || wide) ? 'rgba(154,103,0,0.55)' : '#9a6700';
+        const view = beichiView(b);
+        const bg = unlocked ? `rgba(${view.rgb},0.55)` : view.color;
         const tail = unlocked ? ' ?' : '';
-        const pre = wide ? '宽' : '';
         mk({
           name: 'chanMark',
           points: [{ timestamp: b.ts, value: b.price }],
-          extendData: b.dir === 'down'
-            ? { text: `⚡${pre}底背驰 ${b.area_ratio}${tail}`, pos: 'below', bg, textColor: '#fff', offset: 20 }
-            : { text: `⚡${pre}顶背驰 ${b.area_ratio}${tail}`, pos: 'above', bg, textColor: '#fff', offset: 20 },
+          extendData: {
+            text: `${view.kind === 'momentum' ? '' : '⚡'}${view.label} ${b.area_ratio}${tail}`,
+            pos: b.dir === 'down' ? 'below' : 'above', bg, textColor: '#fff', offset: 20,
+          },
         });
       });
     }
@@ -399,23 +430,25 @@
     let html = '';
     if (s.last_bi) {
       const up = s.last_bi.dir === 'up';
-      html += kv('最新确认笔', `<span class="${up ? 'up' : 'down'}">${up ? '↑ 向上' : '↓ 向下'}</span> ${fmtP(s.last_bi.start_price)} → ${fmtP(s.last_bi.end_price)}`);
+      html += kv('最新成笔', `<span class="${up ? 'up' : 'down'}">${up ? '↑ 向上' : '↓ 向下'}</span> ${fmtP(s.last_bi.start_price)} → ${fmtP(s.last_bi.end_price)} <span class="muted">${s.last_bi.locked ? '已锁定' : '可调整'}</span>`);
     }
     const unf = ch.bi.find((b) => b.unfinished);
     if (unf) {
       const up = unf.dir === 'up';
-      html += kv('进行中一笔', `<span class="${up ? 'up' : 'down'}">${up ? '↑' : '↓'}</span> ${fmtP(unf.start_price)} → ${fmtP(unf.end_price)} <span class="muted">(未确认)</span>`);
+      html += kv(unf.state === 'extending' ? '原笔延伸候选' : '候选尾部', `<span class="${up ? 'up' : 'down'}">${up ? '↑' : '↓'}</span> ${fmtP(unf.start_price)} → ${fmtP(unf.end_price)} <span class="muted">(${unf.state === 'blocked' ? '等待合法分型接续' : '未确认'})</span>`);
     }
     if (s.last_zs) {
       html += kv('最近中枢 ZG/ZD', `${fmtP(s.last_zs.zg)} / ${fmtP(s.last_zs.zd)}${s.last_zs.extending ? ' <span class="muted">(延伸中)</span>' : ''}`);
       html += kv('震荡区间 GG/DD', `${fmtP(s.last_zs.gg)} / ${fmtP(s.last_zs.dd)}`);
+      html += kv('中枢状态', `${s.last_zs.locked ? '构成笔已锁定' : '构成笔可调整'}${s.last_zs.bi_count > 9 ? ` · 连续延伸 ${s.last_zs.bi_count} 笔` : ''}`);
+      if (s.last_zs.known_at) html += kv('中枢最早可知', fmtTs(s.last_zs.known_at));
       if (s.price_pos) {
         const [txt, cls] = posMap[s.price_pos] || ['-', 'flat'];
         html += kv('现价位置', `<span class="${cls}">${txt}</span> (${fmtP(s.last_price)})`);
       }
     }
-    html += kv('统计', `分型 ${ch.fenxing.length} · 笔 ${ch.bi.filter((b) => !b.unfinished).length} · 中枢 ${ch.zhongshu.length}`);
-    html += '<div class="muted" style="margin-top:6px">分析仅使用已收盘K线;级别越大越可靠。</div>';
+    html += kv('统计', `笔 ${ch.bi.filter((b) => !b.unfinished).length} · 线段 ${(ch.xianduan || []).filter((b) => b.locked).length} 已确认 · 中枢 ${(ch.zhongshu_display || ch.zhongshu).length}`);
+    html += '<div class="muted" style="margin-top:6px">黄线=笔，紫色粗线=线段；虚线可调整。中枢仍按笔构建，矩形左沿是回溯起点，不是当时已知时间。</div>';
     $('colStruct').innerHTML = '<h3>结构状态</h3>' + html;
 
     /* 量价·主力 */
@@ -464,29 +497,32 @@
     } else krHtml = '<div class="muted">数据不足。</div>';
     $('colKR').innerHTML = '<h3>KDJ · RSI</h3>' + krHtml;
 
-    /* 背驰 */
+    /* 背驰与动能衰减 */
     let bcHtml = '';
     const bcs = ch.beichi.slice(-2).reverse();
-    if (!bcs.length) bcHtml = '<div class="muted">当前范围内未检测到有效背驰(面积比 ≥ 0.7)。</div>';
+    if (!bcs.length) bcHtml = '<div class="muted">当前范围内未检测到符合条件的背驰或动能衰减；判定同时检查比较段、价格新极值与同向 MACD 面积。</div>';
     bcs.forEach((b) => {
-      const buy = b.dir === 'down';
+      const view = beichiView(b);
       const scoreColor = b.score >= 85 ? '#2ebd85' : b.score >= 65 ? '#4c8dff' : b.score >= 40 ? '#d29922' : '#6e7681';
-      const lvTxt = b.score >= 85 ? '强背驰' : b.score >= 65 ? '有效背驰' : b.score >= 40 ? '弱背驰' : '强度不足';
+      const lvTxt = b.score >= 85 ? '评分高' : b.score >= 65 ? '评分较高' : b.score >= 40 ? '评分一般' : '评分偏低';
       const lockTag = b.locked === false
         ? '<span class="tag" style="background:#d29922">未锁定·或移动</span>'
         : '<span class="tag" style="background:#2a2e35;color:#8b949e">已锁定</span>';
-      const wideTag = b.struct_ok === false
-        ? '<span class="tag" style="background:#57534e">宽口径</span>' : '';
-      const wideNote = b.struct_ok === false
-        ? '<div class="muted" style="margin-top:2px">宽口径:附近无紧邻中枢,仅为相邻同向笔的动能衰减,可靠度低于标准背驰(评分已×0.85)</div>' : '';
+      const comparison = b.comparison || {};
+      const segment = (label, leg, area) => leg
+        ? `<div style="margin-top:5px">${kv(label, `${fmtP(leg.start_price)} → ${fmtP(leg.end_price)}`)}<div class="muted">${fmtTs(leg.start_ts)} → ${fmtTs(leg.end_ts)} · 同向柱面积 ${fmtP(area)}</div></div>`
+        : '';
+      const comparisonHtml = segment('前段', comparison.before, b.area_in)
+        + segment('后段', comparison.after, b.area_out);
       bcHtml += `<div class="card">
-        <div class="kv"><span class="${buy ? 'up' : 'down'}" style="font-weight:600">${b.kind === 'trend' ? '趋势' : '盘整'}${buy ? '底' : '顶'}背驰 ${lockTag}${wideTag}</span>
+        <div class="kv"><span><span class="tag" style="background:${view.color};font-weight:600">${view.label}</span> ${lockTag}</span>
         <span class="muted">${fmtTs(b.ts)}</span></div>
         ${kv('价格', fmtP(b.price))}
-        ${kv('MACD 面积比', `<b>${b.area_ratio}</b> <span class="muted">(&lt;0.7 有效)</span>`)}
+        ${kv('MACD 面积比', `<b>${b.area_ratio}</b> <span class="muted">(后段 / 前段，力度门槛 &lt;0.7)</span>`)}
+        ${comparisonHtml || '<div class="muted">暂无比较段明细，请刷新数据。</div>'}
         ${kv('评分', `<b style="color:${scoreColor}">${b.score}</b> · ${lvTxt} <span class="muted">(区间套未验证)</span>`)}
         <div class="scorebar"><div style="width:${Math.min(b.score, 100)}%;background:${scoreColor}"></div></div>
-        ${wideNote}
+        <div class="muted" style="margin-top:4px">${view.note}</div>
       </div>`;
     });
     /* 形态卡片(收敛三角形) */
@@ -500,7 +536,7 @@
         <div class="muted" style="margin-top:4px">${p.note}</div>
       </div>`;
     });
-    $('colBc').innerHTML = '<h3>背驰 · 形态</h3>' + bcHtml;
+    $('colBc').innerHTML = '<h3>背驰 · 动能衰减 · 形态</h3>' + bcHtml;
 
     /* 买卖点 + 指标背离(合并按时间排序) */
     const sigItems = ch.bsp.map((p) => ({ ...p, _dl: false }))
