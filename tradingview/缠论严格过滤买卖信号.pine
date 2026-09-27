@@ -1,0 +1,706 @@
+//@version=6
+indicator("缠论严格过滤买卖信号", overlay = true, max_bars_back = 100,
+     max_lines_count = 200, max_labels_count = 200)
+
+// Native Chan B2/B3/S2/S3 candidates; keep core rules in sync with 缠论严格过滤交易策略.pine.
+// Fixed history origin; no rolling-window approximation or full recursive Chan.
+// Confirmed 4H uses expression[1] + lookahead_on, consumed at the next 15m close.
+// Only the chart engine is gated by barstate.isconfirmed; do not gate HTF updates
+// with barstate.isconfirmed inside request.security.
+// This indicator has no simulated positions, order fills or OKX order execution.
+// Candidates can differ from strategy entries due to position and sizing rules.
+// Resource overflow stops the script and its subsequent alerts.
+// Create separate Buy/Sell alerts and select Once Per Bar Close.
+// Research build: official TradingView compilation and forward testing pending.
+
+int origin = input.time(timestamp("01 Sep 2026 00:00 +0000"), "固定历史起点（协调世界时，4 小时边界）", group = "历史")
+int maxBars = input.int(12000, "每个周期最多历史 K 线（超限停止，不截断）", minval = 700, maxval = 20000, group = "历史")
+int maxTail = input.int(250, "最多可调整分型（超限停止）", minval = 20, maxval = 500, group = "历史")
+float filterFee = input.float(0.05, "盈亏比筛选：单边手续费（%），与回测策略保持一致", minval = 0, maxval = 1, step = 0.01, group = "费用") / 100
+float filterSlip = input.float(0.05, "盈亏比筛选：不利滑点（%，非跳动点数）", minval = 0, maxval = 1, step = 0.01, group = "费用") / 100
+float minRR = input.float(2.0, "最低净盈亏比", minval = 2, step = 0.1, group = "风险")
+bool showCenters = input.bool(true, "显示 15 分钟与已确认 4 小时中枢", group = "显示")
+bool showStrokes = input.bool(true, "显示新锁定笔", group = "显示")
+bool showSignals = input.bool(true, "在实际可知的 K 线上显示锁定信号", group = "显示")
+bool showStatus = input.bool(true, "显示中文状态面板", group = "显示")
+bool showTradeSignals = input.bool(true, "显示买入 / 卖出标记", group = "买卖信号")
+bool signalAlertsEnabled = input.bool(true, "启用买卖信号提醒", group = "买卖信号")
+
+type MergedBar
+    float h
+    float l
+    int hi
+    int lo
+    int first
+    int last
+
+type Fractal
+    int kind
+    int mk
+    int idx
+    float price
+    int stamp
+    int known
+    int locked
+    array<int> parents
+
+type Stroke
+    int direction
+    int first
+    int last
+    float startPrice
+    float endPrice
+    int startTime
+    int endTime
+    int known
+    int locked
+
+type Center
+    float zg
+    float zd
+    int first
+    int last
+    int formed
+    int known
+    int spanKnown
+    int locked
+    bool allLocked
+
+type Candidate
+    int kind = 0
+    int idx = -1
+    float price = na
+    int stamp = na
+    int known = na
+    int locked = na
+
+type Snapshot
+    int count = 0
+    int closeStamp = na
+    float lastClose = na
+    float amplitude = na
+    float zg = na
+    float zd = na
+    float upEnd = na
+    float downEnd = na
+    int direction = 0
+    int cutoff = na
+    int lockedCount = 0
+    int lockedStartTime = na
+    int lockedEndTime = na
+    float lockedStartPrice = na
+    float lockedEndPrice = na
+    Candidate signal
+
+type Engine
+    array<MergedBar> merged
+    array<Fractal> fractals
+    array<int> endpoints
+    array<int> stamps
+    array<int> closeStamps
+    array<float> posArea
+    array<float> negArea
+    array<float> amplitudes
+    map<string, int> firstSelected
+    int mergeDirection = 1
+    int lockedEndpoint = -1
+    float fast = na
+    float slow = na
+    float dea = na
+    int finishedCount = -1
+    Snapshot snapshot
+
+f_new_engine() =>
+    Engine.new(array.new<MergedBar>(), array.new<Fractal>(), array.new<int>(),
+         array.new<int>(), array.new<int>(), array.new<float>(), array.new<float>(),
+         array.new<float>(), map.new<string, int>(), 1, -1, na, na, na, -1,
+         Snapshot.new(signal = Candidate.new()))
+
+f_edge_key(Fractal a, Fractal b) =>
+    // Each confirmed processed-bar fractal is immutable and has a unique id.
+    str.tostring(a.mk) + ":" + str.tostring(b.mk)
+
+f_high(Stroke b) =>
+    math.max(b.startPrice, b.endPrice)
+
+f_low(Stroke b) =>
+    math.min(b.startPrice, b.endPrice)
+
+f_touches(Stroke b, Center z) =>
+    f_high(b) >= z.zd and f_low(b) <= z.zg
+
+f_leaves(Stroke b, Center z) =>
+    b.direction == 1 ? b.startPrice <= z.zg and b.endPrice > z.zg : b.startPrice >= z.zd and b.endPrice < z.zd
+
+f_area(Engine e, Stroke b) =>
+    array<float> values = b.direction == 1 ? e.posArea : e.negArea
+    array.get(values, b.last) - (b.first > 0 ? array.get(values, b.first - 1) : 0.0)
+
+f_interval(Engine e, int left, int right) =>
+    float highest = na
+    float lowest = na
+    if right >= left
+        for k = left to right
+            MergedBar m = array.get(e.merged, k)
+            highest := na(highest) ? m.h : math.max(highest, m.h)
+            lowest := na(lowest) ? m.l : math.min(lowest, m.l)
+    [highest, lowest]
+
+f_add_fractal(Engine e, Fractal newest) =>
+    int oldSize = array.size(e.fractals)
+    int anchorId = e.lockedEndpoint >= 0 ? array.get(e.endpoints, e.lockedEndpoint) : 0
+    if oldSize - anchorId + 1 > maxTail
+        runtime.error("可调整分型数量超过上限，脚本已停止。请选择更晚的固定起点，或提高分型数量上限后重新验证。")
+    // Compute all legal incoming edges once. Reverse scan retains short
+    // rejected fractals in the full processed-bar range extrema check.
+    if oldSize > 0
+        int prior = oldSize - 1
+        int earliestMk = (array.get(e.fractals, anchorId)).mk
+        float highest = na
+        float lowest = na
+        for offset = 0 to newest.mk - earliestMk
+            int mIndex = newest.mk - offset
+            MergedBar m = array.get(e.merged, mIndex)
+            highest := na(highest) ? m.h : math.max(highest, m.h)
+            lowest := na(lowest) ? m.l : math.min(lowest, m.l)
+            if prior >= anchorId
+                Fractal p = array.get(e.fractals, prior)
+                if p.mk == mIndex
+                    float top = p.kind == 1 ? p.price : newest.price
+                    float bottom = p.kind == -1 ? p.price : newest.price
+                    bool valid = p.kind != newest.kind and newest.mk - p.mk >= 4 and top > bottom and highest == top and lowest == bottom
+                    if valid
+                        array.push(newest.parents, prior)
+                    prior -= 1
+        array.reverse(newest.parents)
+    array.push(e.fractals, newest)
+
+    int total = array.size(e.fractals)
+    bool hasPrefix = e.lockedEndpoint >= 0
+    int firstId = hasPrefix ? array.get(e.endpoints, e.lockedEndpoint) : 0
+    int count = total - firstId
+    array<int> lengths = array.new<int>(count, hasPrefix ? 0 : 1)
+    array<int> preceding = array.new<int>(count, -1)
+    array.set(lengths, 0, 1)
+    int latest = hasPrefix ? 0 : -1
+    if count > 1
+        for relative = 1 to count - 1
+            Fractal f = array.get(e.fractals, firstId + relative)
+            int parentCount = array.size(f.parents)
+            if parentCount > 0
+                for pIndex = 0 to parentCount - 1
+                    int previous = array.get(f.parents, pIndex) - firstId
+                    if previous >= 0
+                        int priorLength = array.get(lengths, previous)
+                        if priorLength > 0 and priorLength + 1 >= array.get(lengths, relative)
+                            // Ascending predecessor order + >= matches Python.
+                            array.set(lengths, relative, priorLength + 1)
+                            array.set(preceding, relative, previous)
+            if array.get(lengths, relative) >= (hasPrefix ? 1 : 2)
+                latest := relative
+    if latest >= 0
+        array<int> selected = array.new<int>()
+        int cursor = latest
+        while cursor >= 0
+            array.push(selected, firstId + cursor)
+            cursor := array.get(preceding, cursor)
+        array.reverse(selected)
+        array<int> result = array.new<int>()
+        // A lock at endpoint zero has an empty prefix before the anchor.
+        // Pine array.slice(0, 0) is invalid; copy explicitly without views.
+        if hasPrefix and e.lockedEndpoint > 0
+            for p = 0 to e.lockedEndpoint - 1
+                array.push(result, array.get(e.endpoints, p))
+        array.concat(result, selected)
+        e.endpoints := result
+    else if not hasPrefix
+        Fractal initial = array.get(e.fractals, 0)
+        int chosen = 0
+        if total > 1
+            for n = 1 to total - 1
+                Fractal f = array.get(e.fractals, n)
+                Fractal best = array.get(e.fractals, chosen)
+                if f.kind == initial.kind and (f.kind == 1 ? f.price > best.price : f.price < best.price)
+                    chosen := n
+        e.endpoints := array.from(chosen)
+
+    int endpoints = array.size(e.endpoints)
+    if endpoints > 1
+        for n = math.max(e.lockedEndpoint + 1, 1) to endpoints - 1
+            Fractal a = array.get(e.fractals, array.get(e.endpoints, n - 1))
+            Fractal b = array.get(e.fractals, array.get(e.endpoints, n))
+            string key = f_edge_key(a, b)
+            if not map.contains(e.firstSelected, key)
+                map.put(e.firstSelected, key, newest.known)
+    // Freeze only a valid prefix. A candidate lock needs TWO subsequent
+    // strokes and must remain the same-type extreme through the latest FX.
+    int newLocked = e.lockedEndpoint
+    if endpoints >= 3
+        int scan = newest.mk
+        float highest = na
+        float lowest = na
+        for offset = 0 to endpoints - 3
+            int n = endpoints - 3 - offset
+            if n > e.lockedEndpoint
+                Fractal f = array.get(e.fractals, array.get(e.endpoints, n))
+                while scan >= f.mk
+                    MergedBar m = array.get(e.merged, scan)
+                    highest := na(highest) ? m.h : math.max(highest, m.h)
+                    lowest := na(lowest) ? m.l : math.min(lowest, m.l)
+                    scan -= 1
+                if f.price == (f.kind == 1 ? highest : lowest)
+                    newLocked := math.max(newLocked, n)
+    if newLocked > e.lockedEndpoint
+        for n = e.lockedEndpoint + 1 to newLocked
+            Fractal f = array.get(e.fractals, array.get(e.endpoints, n))
+            f.locked := newest.known
+        e.lockedEndpoint := newLocked
+    true
+
+f_merge(Engine e, int idx) =>
+    bool appended = false
+    int count = array.size(e.merged)
+    if count == 0
+        array.push(e.merged, MergedBar.new(high, low, idx, idx, idx, idx))
+        appended := true
+    else
+        MergedBar last = array.get(e.merged, count - 1)
+        bool contains = (last.h >= high and last.l <= low) or (high >= last.h and low <= last.l)
+        if contains
+            if e.mergeDirection == 1
+                if high > last.h
+                    last.h := high
+                    last.hi := idx
+                if low > last.l
+                    last.l := low
+                    last.lo := idx
+            else
+                if high < last.h
+                    last.h := high
+                    last.hi := idx
+                if low < last.l
+                    last.l := low
+                    last.lo := idx
+            last.last := idx
+        else
+            e.mergeDirection := high > last.h ? 1 : -1
+            array.push(e.merged, MergedBar.new(high, low, idx, idx, idx, idx))
+            appended := true
+    bool found = false
+    int mCount = array.size(e.merged)
+    if appended and mCount >= 3
+        MergedBar a = array.get(e.merged, mCount - 3)
+        MergedBar b = array.get(e.merged, mCount - 2)
+        MergedBar c = array.get(e.merged, mCount - 1)
+        int kind = b.h > a.h and b.h > c.h and b.l > a.l and b.l > c.l ? 1 : b.l < a.l and b.l < c.l and b.h < a.h and b.h < c.h ? -1 : 0
+        if kind != 0
+            int extreme = kind == 1 ? b.hi : b.lo
+            Fractal fx = Fractal.new(kind, mCount - 2, extreme, kind == 1 ? b.h : b.l,
+                 array.get(e.stamps, extreme), array.get(e.closeStamps, c.first), na, array.new<int>())
+            f_add_fractal(e, fx)
+            found := true
+    found
+
+f_complete_count(Engine e) =>
+    int epCount = array.size(e.endpoints)
+    int complete = math.max(epCount - 1, 0)
+    if epCount >= 2
+        Fractal last = array.get(e.fractals, array.get(e.endpoints, epCount - 1))
+        Fractal before = array.get(e.fractals, array.get(e.endpoints, epCount - 2))
+        int mCount = array.size(e.merged)
+        if na(last.locked) and last.mk + 1 < mCount
+            int extremeMk = last.mk + 1
+            MergedBar firstTail = array.get(e.merged, extremeMk)
+            float extreme = last.kind == 1 ? firstTail.h : firstTail.l
+            if extremeMk + 1 < mCount
+                for m = extremeMk + 1 to mCount - 1
+                    MergedBar b = array.get(e.merged, m)
+                    float value = last.kind == 1 ? b.h : b.l
+                    if last.kind == 1 ? value > extreme : value < extreme
+                        extreme := value
+                        extremeMk := m
+            bool exceeded = last.kind == 1 ? extreme > last.price : extreme < last.price
+            if exceeded and extremeMk - before.mk >= 4
+                [highest, lowest] = f_interval(e, before.mk, extremeMk)
+                bool valid = last.kind == 1 ? highest == extreme and lowest == before.price : highest == before.price and lowest == extreme
+                if valid
+                    // Python replaces the last stroke by unfinished/extending.
+                    complete -= 1
+    complete
+
+f_strokes(Engine e, int count) =>
+    array<Stroke> result = array.new<Stroke>()
+    if count > 0
+        for i = 0 to count - 1
+            Fractal a = array.get(e.fractals, array.get(e.endpoints, i))
+            Fractal b = array.get(e.fractals, array.get(e.endpoints, i + 1))
+            int known = math.max(a.known, b.known, map.get(e.firstSelected, f_edge_key(a, b)))
+            array.push(result, Stroke.new(b.kind, a.idx, b.idx, a.price, b.price, a.stamp, b.stamp, known, b.locked))
+    result
+
+f_candidate(int kind, Stroke b, int known, int locked) =>
+    Candidate.new(kind, b.last, b.endPrice, b.endTime, math.max(b.known, known), locked)
+
+f_analyze(Engine e, int complete, bool signals) =>
+    array<Stroke> bis = f_strokes(e, complete)
+    array<Center> centers = array.new<Center>()
+    array<bool> trend = array.new<bool>(complete, false)
+    Candidate selected = Candidate.new()
+    int cutoffIdx = complete >= 2 ? (array.get(bis, complete - 2)).last : -1
+    int lockedCount = math.min(math.max(e.lockedEndpoint, 0), complete)
+    if lockedCount > 0 and complete >= 2
+        cutoffIdx := math.min(cutoffIdx, (array.get(bis, lockedCount - 1)).last)
+    int nextStart = 0
+    bool extending = false
+    Center beforePrevious = na
+    float upEnd = na
+    float downEnd = na
+    if complete > 0
+        for i = 0 to complete - 1
+            Stroke b = array.get(bis, i)
+            int zsCount = array.size(centers)
+            Center latest = zsCount > 0 ? array.get(centers, zsCount - 1) : na
+            // Centers here are exactly the logical centers of bis[:i].
+            if signals and i >= 2 and zsCount >= 2
+                Center first = array.get(centers, zsCount - 2)
+                Center second = latest
+                bool active = second.last >= i - 2
+                bool separate = b.direction == -1 ? first.zd > second.zg : first.zg < second.zd
+                if active and separate and f_leaves(b, second)
+                    int departure = -1
+                    if first.formed + 1 <= second.first
+                        for j = first.formed + 1 to second.first
+                            Stroke earlier = array.get(bis, j)
+                            if earlier.direction == b.direction and f_leaves(earlier, first)
+                                departure := j
+                    if departure >= 0
+                        Stroke earlier = array.get(bis, departure)
+                        float priorExtreme = b.direction == 1 ? f_high(earlier) : f_low(earlier)
+                        if departure + 1 <= i - 1
+                            for j = departure + 1 to i - 1
+                                Stroke p = array.get(bis, j)
+                                priorExtreme := b.direction == 1 ? math.max(priorExtreme, f_high(p)) : math.min(priorExtreme, f_low(p))
+                        bool newExtreme = b.direction == 1 ? b.endPrice > priorExtreme : b.endPrice < priorExtreme
+                        float enteringArea = f_area(e, earlier)
+                        float leavingArea = f_area(e, b)
+                        array.set(trend, i, newExtreme and enteringArea > 0 and leavingArea / enteringArea < 0.7)
+            if signals and complete >= 2 and i >= 2 and b.last >= cutoffIdx
+                // B2/S2 can ONLY follow a structural trend B1/S1.
+                if array.get(trend, i - 2)
+                    Stroke firstPoint = array.get(bis, i - 2)
+                    if b.direction == -1 and b.endPrice > firstPoint.endPrice
+                        selected := f_candidate(2, b, b.known, b.locked)
+                    else if b.direction == 1 and b.endPrice < firstPoint.endPrice
+                        selected := f_candidate(-2, b, b.known, b.locked)
+                // beforePrevious is a COPY from before leave i-1 was appended.
+                // Later extensions therefore cannot reclassify historical B3.
+                if i >= 4 and not na(beforePrevious)
+                    Stroke leave = array.get(bis, i - 1)
+                    Center z = beforePrevious
+                    bool adjacent = z.last == i - 2 and z.formed < i - 1
+                    int known = math.max(leave.known, b.known)
+                    bool causal = math.max(z.known, z.spanKnown) <= known
+                    int kind = 0
+                    if adjacent and causal
+                        if leave.direction == 1 and b.direction == -1 and leave.startPrice <= z.zg and leave.endPrice > z.zg and b.endPrice > z.zg
+                            kind := 3
+                        else if leave.direction == -1 and b.direction == 1 and leave.startPrice >= z.zd and leave.endPrice < z.zd and b.endPrice < z.zd
+                            kind := -3
+                    if kind != 0
+                        bool locked = not na(leave.locked) and not na(b.locked) and z.allLocked
+                        int lockedAt = locked ? math.max(leave.locked, b.locked, z.locked) : na
+                        // Same endpoint/type ordering matches max(ts, type).
+                        selected := f_candidate(kind, b, known, lockedAt)
+            beforePrevious := not na(latest) ? latest.copy() : na
+            if b.direction == 1
+                upEnd := b.endPrice
+            else
+                downEnd := b.endPrice
+
+            // Append to a logical-center scanner in O(1) amortized work.
+            // A touching departure remains part of the group, exactly as Python.
+            if extending
+                Center z = array.get(centers, array.size(centers) - 1)
+                if f_touches(b, z)
+                    z.last := i
+                    z.spanKnown := math.max(z.spanKnown, b.known)
+                    z.allLocked := z.allLocked and not na(b.locked)
+                    z.locked := z.allLocked ? math.max(z.locked, b.locked) : na
+                else
+                    extending := false
+                    nextStart := i
+            if not extending and nextStart + 2 <= i
+                Stroke a = array.get(bis, nextStart)
+                Stroke c = array.get(bis, nextStart + 1)
+                Stroke d = array.get(bis, nextStart + 2)
+                float zg = math.min(f_high(a), f_high(c), f_high(d))
+                float zd = math.max(f_low(a), f_low(c), f_low(d))
+                if zg > zd
+                    int known = math.max(a.known, c.known, d.known)
+                    bool locked = not na(a.locked) and not na(c.locked) and not na(d.locked)
+                    int lockedAt = locked ? math.max(a.locked, c.locked, d.locked) : na
+                    array.push(centers, Center.new(zg, zd, nextStart, i, nextStart + 2, known, known, lockedAt, locked))
+                    extending := true
+                else
+                    nextStart += 1
+    Snapshot out = Snapshot.new(signal = selected)
+    out.cutoff := cutoffIdx >= 0 ? array.get(e.stamps, cutoffIdx) : na
+    out.lockedCount := lockedCount
+    out.upEnd := upEnd
+    out.downEnd := downEnd
+    if array.size(centers) > 0
+        Center z = array.get(centers, array.size(centers) - 1)
+        out.zg := z.zg
+        out.zd := z.zd
+    if lockedCount > 0
+        Stroke b = array.get(bis, lockedCount - 1)
+        out.lockedStartTime := b.startTime
+        out.lockedEndTime := b.endTime
+        out.lockedStartPrice := b.startPrice
+        out.lockedEndPrice := b.endPrice
+    out
+
+f_engine(bool signals, bool update = true) =>
+    var Engine e = f_new_engine()
+    if update and time >= origin
+        int idx = array.size(e.stamps)
+        if idx == 0 and time != origin
+            runtime.error("固定起点未加载或未对齐 4 小时边界。请加载更早数据，或选择更晚的协调世界时 4 小时边界。")
+        if idx >= maxBars
+            runtime.error("固定起点后的历史 K 线超过上限，脚本已停止。请选择更晚的起点并重新验证，不会自动截断历史。")
+        if idx > 0 and time != array.get(e.closeStamps, idx - 1)
+            runtime.error("固定起点后的 K 线缺失或不连续，脚本已停止，不能使用不完整历史进行计算。")
+        array.push(e.stamps, time)
+        array.push(e.closeStamps, time_close)
+        e.fast := na(e.fast) ? close : e.fast + (close - e.fast) * 2.0 / 11.0
+        e.slow := na(e.slow) ? close : e.slow + (close - e.slow) * 2.0 / 21.0
+        float dif = e.fast - e.slow
+        e.dea := na(e.dea) ? dif : e.dea + (dif - e.dea) * 2.0 / 6.0
+        float histogram = 2 * (dif - e.dea)
+        array.push(e.posArea, (idx > 0 ? array.get(e.posArea, idx - 1) : 0) + math.max(histogram, 0))
+        array.push(e.negArea, (idx > 0 ? array.get(e.negArea, idx - 1) : 0) + math.max(-histogram, 0))
+        array.push(e.amplitudes, (high - low) / close)
+        if array.size(e.amplitudes) > 20
+            array.shift(e.amplitudes)
+        bool newFractal = f_merge(e, idx)
+        int complete = f_complete_count(e)
+        if newFractal or complete != e.finishedCount
+            e.snapshot := f_analyze(e, complete, signals)
+            e.finishedCount := complete
+        e.snapshot.count := idx + 1
+        e.snapshot.closeStamp := time_close
+        e.snapshot.lastClose := close
+        e.snapshot.amplitude := 0.6 * array.avg(e.amplitudes)
+        e.snapshot.direction := complete > 0 and not na(e.snapshot.zg) ? close > e.snapshot.zg ? 1 : close < e.snapshot.zd ? -1 : 0 : 0
+    // Return a scalar-only tuple each execution. Do not return the mutable
+    // Engine/arrays from request.security (avoids historical collection copies).
+    Snapshot s = e.snapshot
+    Candidate c = s.signal
+    int known = c.kind != 0 ? math.max(c.known, array.get(e.closeStamps, math.min(c.idx + 2, array.size(e.closeStamps) - 1))) : na
+    int locked = c.kind != 0 and not na(c.locked) ? math.max(known, c.locked) : na
+    [s.count, s.closeStamp, s.lastClose, s.amplitude, s.zg, s.zd, s.upEnd, s.downEnd,
+     s.direction, s.cutoff, s.lockedCount, s.lockedStartTime, s.lockedEndTime,
+     s.lockedStartPrice, s.lockedEndPrice, c.kind, c.stamp, c.price, known, locked]
+
+f_confirmed_big() =>
+    [count, stamp, lastClose, amplitude, zg, zd, upEnd, downEnd, direction, cutoff,
+     lockedCount, lockedStart, lockedEnd, lockedP0, lockedP1, kind, signalStamp,
+     signalPrice, known, locked] = f_engine(false)
+    [count[1], stamp[1], lastClose[1], amplitude[1], zg[1], zd[1], upEnd[1], downEnd[1], direction[1]]
+
+if barstate.isfirst
+    if timeframe.in_seconds() != 900
+        runtime.error("请将图表切换为 15 分钟标准蜡烛图。")
+    if not chart.is_standard
+        runtime.error("请使用标准蜡烛图；合成图表的开高低收价格不代表可成交的市场价格。")
+    if syminfo.prefix != "OKX" or not (syminfo.basecurrency == "BTC" or syminfo.basecurrency == "ETH") or syminfo.currency != "USDT" or not str.endswith(syminfo.ticker, ".P")
+        runtime.error("当前支持欧易的 BTCUSDT.P、ETHUSDT.P 线性永续合约。")
+    if syminfo.pointvalue != 1
+        runtime.error("当前品种的数量单位尚未通过欧易币数量消息模板校验，合约点值必须为 1。")
+    if origin % 14400000 != 0
+        runtime.error("请选择协调世界时的 4 小时边界：00:00、04:00、08:00、12:00、16:00 或 20:00。")
+
+[smallCount, smallClosed, smallClose, smallAmplitude, smallZG, smallZD, smallUp,
+ smallDown, smallDirection, cutoff, lockedCount, lockedStart, lockedEnd,
+ lockedP0, lockedP1, signalType, signalStamp, signalPrice, signalKnown,
+ signalLocked] = f_engine(true, barstate.isconfirmed)
+[bigCount, bigClosed, bigClose, bigAmplitude, bigZG, bigZD, bigUp, bigDown,
+ bigDirection] = request.security(syminfo.tickerid, "240", f_confirmed_big(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+// Research reason codes: 0 eligible; 1 warmup; 2 no active signal;
+// 3 signal unlocked; 4 direction neutral/conflicting; 5 away from structure;
+// 6 stop invalidated; 7 no structure target; 8 net RR below minimum;
+// 9 candidate already emitted. This indicator does not simulate orders.
+int reason = 1
+int action = 0
+float plannedEntry = na
+float candidateStop = na
+float candidateTarget = na
+float candidateRR = na
+float verifiedLevel = na
+var map<string, bool> emitted = map.new<string, bool>()
+string signalKey = str.tostring(signalType) + ":" + str.tostring(signalStamp)
+bool ready = smallCount >= 80 and not na(bigCount) and bigCount >= 40
+if barstate.isconfirmed and ready
+    reason := 2
+    if signalType != 0
+        reason := 3
+        if not na(signalLocked)
+            int side = signalType > 0 ? 1 : -1
+            reason := 4
+            if side == bigDirection
+                array<float> levels = array.from(bigZG, bigZD, bigUp, bigDown)
+                for p in levels
+                    if not na(p) and p > 0 and math.abs(signalPrice - p) / signalPrice <= bigAmplitude
+                        if na(verifiedLevel) or math.abs(p - signalPrice) < math.abs(verifiedLevel - signalPrice)
+                            verifiedLevel := p
+                reason := 5
+                if not na(verifiedLevel)
+                    candidateStop := signalPrice * (1 - side * 0.002)
+                    plannedEntry := close * (1 + side * filterSlip)
+                    reason := 6
+                    if side * (close - candidateStop) > 0
+                        for p in levels
+                            if not na(p) and p > 0 and side * (p - plannedEntry) > 0
+                                if na(candidateTarget) or math.abs(p - plannedEntry) < math.abs(candidateTarget - plannedEntry)
+                                    candidateTarget := p
+                        reason := 7
+                        if not na(candidateTarget)
+                            float stopFill = candidateStop * (1 - side * filterSlip)
+                            float targetFill = candidateTarget * (1 - side * filterSlip)
+                            float loss = side * (plannedEntry - stopFill) + filterFee * (plannedEntry + stopFill)
+                            float gain = side * (targetFill - plannedEntry) - filterFee * (plannedEntry + targetFill)
+                            candidateRR := gain / loss
+                            reason := 8
+                            if candidateRR >= minRR
+                                reason := 9
+                                if not map.contains(emitted, signalKey)
+                                    map.put(emitted, signalKey, true)
+                                    action := side
+                                    reason := 0
+
+f_reason_text(int code) =>
+    switch code
+        0 => "过滤通过"
+        1 => "预热中"
+        2 => "暂无活跃二、三类信号"
+        3 => "信号未锁定"
+        4 => "4 小时方向冲突或中性"
+        5 => "远离 4 小时结构位"
+        6 => "结构止损已失效"
+        7 => "无结构目标"
+        8 => "净盈亏比不足"
+        9 => "该信号此前已通过"
+        => "等待数据"
+
+// Signals share the strategy's closed-bar qualification and deduplication.
+// alertcondition must be in global scope; its message is a constant template.
+bool buySignal = barstate.isconfirmed and action == 1
+bool sellSignal = barstate.isconfirmed and action == -1
+
+// Observe selected, active locked candidates independently of display/alerts.
+// These counters are not trade counts and never alter eligibility or deduplication.
+var map<string, bool> observedLocked = map.new<string, bool>()
+var int lockedBuyCount = 0
+var int lockedSellCount = 0
+var int eligibleBuyCount = 0
+var int eligibleSellCount = 0
+var string lastLockedName = "—"
+var int lastLockedCheckedAt = na
+var int lastLockedReason = 1
+bool newLockedObservation = false
+if barstate.isconfirmed
+    if buySignal
+        eligibleBuyCount += 1
+    if sellSignal
+        eligibleSellCount += 1
+    if signalType != 0 and not na(signalLocked)
+        if not map.contains(observedLocked, signalKey)
+            map.put(observedLocked, signalKey, true)
+            newLockedObservation := true
+            if signalType > 0
+                lockedBuyCount += 1
+            else
+                lockedSellCount += 1
+        lastLockedName := (signalType > 0 ? "B" : "S") + str.tostring(math.abs(signalType))
+        lastLockedCheckedAt := time_close
+        lastLockedReason := reason
+
+alertcondition(signalAlertsEnabled and buySignal, title = "买入信号", message = '缠论买入信号（B2/B3，做多候选） | {{exchange}}:{{ticker}} | {{interval}}m | 收盘价={{close}} | 结构止损={{plot("audit.stop")}} | 结构目标={{plot("audit.target")}} | 净盈亏比={{plot("audit.net_rr")}} | 候选信号，非成交回报')
+alertcondition(signalAlertsEnabled and sellSignal, title = "卖出信号", message = '缠论卖出信号（S2/S3，做空候选） | {{exchange}}:{{ticker}} | {{interval}}m | 收盘价={{close}} | 结构止损={{plot("audit.stop")}} | 结构目标={{plot("audit.target")}} | 净盈亏比={{plot("audit.net_rr")}} | 候选信号，非成交回报')
+
+plotshape(showTradeSignals and buySignal, title = "买入信号", style = shape.labelup, location = location.belowbar, color = color.green, text = "买入", textcolor = color.white, size = size.small)
+plotshape(showTradeSignals and sellSignal, title = "卖出信号", style = shape.labeldown, location = location.abovebar, color = color.red, text = "卖出", textcolor = color.white, size = size.small)
+plot(showCenters ? smallZG : na, "15 分钟中枢上沿", color.new(color.blue, 35), style = plot.style_stepline)
+plot(showCenters ? smallZD : na, "15 分钟中枢下沿", color.new(color.blue, 35), style = plot.style_stepline)
+plot(showCenters ? bigZG : na, "已确认 4 小时中枢上沿", color.new(color.orange, 10), 2, plot.style_stepline)
+plot(showCenters ? bigZD : na, "已确认 4 小时中枢下沿", color.new(color.orange, 10), 2, plot.style_stepline)
+if barstate.isconfirmed and showStrokes and lockedCount > nz(lockedCount[1]) and not na(lockedStart)
+    line.new(lockedStart, lockedP0, lockedEnd, lockedP1, xloc = xloc.bar_time, color = color.new(color.yellow, 10), width = 2)
+if showSignals and newLockedObservation
+    string pointName = signalType == 2 ? "二买 B2" : signalType == 3 ? "三买 B3" : signalType == -2 ? "二卖 S2" : "三卖 S3"
+    string caption = pointName + " · 已锁定"
+    string details = "缠论结构点；买卖提醒还要求交易过滤通过。\n首次观察时：" + f_reason_text(reason) + "\n观察时间：" + str.format_time(time_close, "yyyy-MM-dd HH:mm", "UTC") + " UTC"
+    label.new(time, signalType > 0 ? low : high, caption, xloc = xloc.bar_time,
+         style = signalType > 0 ? label.style_label_up : label.style_label_down,
+         color = signalType > 0 ? color.new(color.green, 15) : color.new(color.red, 15), textcolor = color.white, size = size.tiny, tooltip = details)
+
+// Keep the last closed-bar assessment visible while the next bar develops.
+var table statusPanel = table.new(position.top_right, 2, 12, bgcolor = color.new(color.black, 15), border_width = 1, border_color = color.new(color.gray, 60))
+if barstate.islast or barstate.islastconfirmedhistory
+    if not showStatus
+        table.clear(statusPanel, 0, 0, 1, 11)
+    else if barstate.isconfirmed
+        string stateText = buySignal ? "买入 / 做多候选" : sellSignal ? "卖出 / 做空候选" : "观望"
+        color stateColor = buySignal ? color.lime : sellSignal ? color.red : color.orange
+        string reasonText = f_reason_text(reason)
+        string directionText = na(bigDirection) ? "等待数据" : bigDirection > 0 ? "多头" : bigDirection < 0 ? "空头" : "中性"
+        table.cell(statusPanel, 0, 0, "最近收盘结论", text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 1, 0, stateText, text_color = stateColor, text_size = size.small)
+        table.cell(statusPanel, 0, 1, "过滤状态", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 1, reasonText, text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 2, "已收盘 4 小时", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 2, directionText, text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 3, "候选净盈亏比", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 3, na(candidateRR) ? "—" : "1 : " + str.tostring(candidateRR, "#.##"), text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 4, "候选止损", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 4, na(candidateStop) ? "—" : str.tostring(candidateStop, format.mintick), text_color = color.red, text_size = size.small)
+        table.cell(statusPanel, 0, 5, "候选目标", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 5, na(candidateTarget) ? "—" : str.tostring(candidateTarget, format.mintick), text_color = color.lime, text_size = size.small)
+        table.cell(statusPanel, 0, 6, "信号含义", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 6, "候选提醒，非开平仓成交", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 0, 7, "历史锁定候选 买 / 卖", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 7, str.tostring(lockedBuyCount) + " / " + str.tostring(lockedSellCount), text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 8, "历史过滤通过 买 / 卖", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 8, str.tostring(eligibleBuyCount) + " / " + str.tostring(eligibleSellCount), text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 9, "最近检查锁定点 (UTC)", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 9, na(lastLockedCheckedAt) ? "—" : lastLockedName + " · " + str.format_time(lastLockedCheckedAt, "MM-dd HH:mm", "UTC"), text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 10, "该点当时过滤状态", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 10, na(lastLockedCheckedAt) ? "尚未观察到锁定候选" : f_reason_text(lastLockedReason), text_color = color.white, text_size = size.small)
+        table.cell(statusPanel, 0, 11, "统计起点 (UTC)", text_color = color.silver, text_size = size.small)
+        table.cell(statusPanel, 1, 11, str.format_time(origin, "yyyy-MM-dd HH:mm", "UTC"), text_color = color.silver, text_size = size.small)
+
+// Export chart data to CSV. All timestamps below are UTC milliseconds.
+// signal_ts is the historical price extreme; known/locked times are availability
+// events. Labels are on availability bars, never backdated to fake early fills.
+plot(signalType, "audit.signal_type", display = display.data_window)
+plot(signalStamp, "audit.signal_ts", display = display.data_window)
+plot(signalType != 0 and not na(signalLocked) ? 1 : 0, "audit.signal_locked", display = display.data_window)
+plot(signalPrice, "audit.signal_price", display = display.data_window)
+plot(signalKnown, "audit.signal_known_at", display = display.data_window)
+plot(signalLocked, "audit.signal_locked_at", display = display.data_window)
+plot(cutoff, "audit.active_cutoff_ts", display = display.data_window)
+plot(bigClosed, "audit.big_closed_at", display = display.data_window)
+plot(action, "audit.action", display = display.data_window)
+plot(candidateStop, "audit.stop", display = display.data_window)
+plot(candidateTarget, "audit.target", display = display.data_window)
+plot(candidateRR, "audit.net_rr", display = display.data_window)
+plot(reason, "audit.reason", display = display.data_window)
+plot(smallCount, "audit.small_count", display = display.data_window)
+plot(bigCount, "audit.big_count", display = display.data_window)
+plot(lockedCount, "audit.locked_strokes", display = display.data_window)
+plot(bigDirection, "audit.big_direction", display = display.data_window)
+plot(lockedBuyCount, "audit.locked_buy_count", display = display.data_window)
+plot(lockedSellCount, "audit.locked_sell_count", display = display.data_window)
+plot(eligibleBuyCount, "audit.eligible_buy_count", display = display.data_window)
+plot(eligibleSellCount, "audit.eligible_sell_count", display = display.data_window)

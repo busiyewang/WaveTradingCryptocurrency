@@ -1,0 +1,165 @@
+//@version=6
+const float MARGIN_PERCENT = 10.0
+const float FEE_PERCENT = 0.05
+const int SLIPPAGE_TICKS = 2
+strategy("四小时趋势五分钟双向杠杆策略", overlay = true,
+     initial_capital = 1000, pyramiding = 0,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     margin_long = MARGIN_PERCENT, margin_short = MARGIN_PERCENT,
+     commission_type = strategy.commission.percent, commission_value = FEE_PERCENT,
+     slippage = SLIPPAGE_TICKS, process_orders_on_close = false,
+     calc_on_every_tick = false, calc_on_order_fills = false)
+
+// 使用方法：在 OKX 的 ETHUSDT.P 或 BTCUSDT.P 标准 5 分钟图上完整加载。
+// 这是均线策略；4 小时确定方向，5 分钟找入场交叉，不使用缠论买卖点。
+// 只读已收盘的 4 小时数据，在随后第一根 5 分钟收盘判断，市价单通常下一根开盘成交。
+// 10% 保证金要求表示最高 10 倍；具体数量由预算和止损风险共同决定。
+// 属性中的保证金、手续费、滑点必须与上方常量一致，数量估算无法读取属性覆盖值。
+// ATR 距离在提交入场时固定，通过 loss 跳数相对实际模拟入场价挂保护单。
+// 成交警报消息填写：{{strategy.order.alert_message}}
+// 独立 alertcondition 买卖警报见：四小时趋势五分钟买卖信号.pine。
+
+int htfLength = input.int(200, "4 小时趋势均线周期", minval = 2, group = "均线规则")
+int fastLength = input.int(9, "5 分钟快线周期", minval = 1, group = "均线规则")
+int slowLength = input.int(21, "5 分钟慢线周期", minval = 2, group = "均线规则")
+bool entriesEnabled = input.bool(true, "允许新开仓（关闭仍执行平仓）", group = "交易")
+float budgetFraction = input.float(10, "每笔保证金与费用预算（权益 %）", minval = 0.1, maxval = 90, step = 1, group = "资金管理") / 100
+float quantityStep = input.float(0.001, "模拟数量步长（币）", minval = 0.00000001, tooltip = "向上对齐为图表最小数量单位的整数倍。例如输入 0.0015，图表最小单位为 0.001 时，实际使用 0.002。", group = "资金管理")
+bool useAtrStop = input.bool(true, "启用固定 ATR 止损", group = "止损")
+int atrLength = input.int(14, "ATR 周期", minval = 1, group = "止损")
+float atrMultiple = input.float(1.5, "ATR 止损倍数", minval = 0.1, step = 0.1, group = "止损")
+float riskFraction = input.float(1, "每笔计划风险上限（权益 %，启用止损时生效）", minval = 0.1, maxval = 10, step = 0.1, group = "止损") / 100
+bool showSignals = input.bool(true, "显示开仓提交标记", group = "显示")
+bool showStatus = input.bool(true, "显示方向和交易统计", group = "显示")
+
+if barstate.isfirst
+    if not chart.is_standard or timeframe.in_seconds() != 300
+        runtime.error("请切换为标准蜡烛图、5 分钟周期，再运行本策略。")
+    if syminfo.prefix != "OKX" or (syminfo.ticker != "ETHUSDT.P" and syminfo.ticker != "BTCUSDT.P") or syminfo.pointvalue != 1
+        runtime.error("本版数量按币计算，请使用 OKX:ETHUSDT.P 或 OKX:BTCUSDT.P 线性永续图表。")
+    if fastLength >= slowLength
+        runtime.error("5 分钟快线周期必须小于慢线周期。")
+
+// [1] 必须在大级别表达式内部，表示前一根已收盘的 4 小时 K 线。
+[htfClose, htfEma, htfClosedAt, htfCount] = request.security(syminfo.tickerid, "240",
+     [close[1], ta.ema(close, htfLength)[1], time_close[1], bar_index[1] + 1],
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+float fastEma = ta.ema(close, fastLength)
+float slowEma = ta.ema(close, slowLength)
+float atrValue = ta.atr(atrLength)
+bool crossUp = ta.crossover(fastEma, slowEma)
+bool crossDown = ta.crossunder(fastEma, slowEma)
+bool ready = htfCount >= htfLength and bar_index + 1 >= slowLength and not na(htfEma) and not na(atrValue)
+bool bullish = ready and htfClose > htfEma
+bool bearish = ready and htfClose < htfEma
+bool longSignal = barstate.isconfirmed and bullish and crossUp
+bool shortSignal = barstate.isconfirmed and bearish and crossDown
+
+// 预算包含初始保证金与估算双边手续费；参考价偏高，减少名义数量。
+float feeRate = FEE_PERCENT / 100
+float slipDistance = SLIPPAGE_TICKS * syminfo.mintick
+float referencePrice = close + slipDistance
+int stopTicks = na(atrValue) ? na : int(math.max(1, math.ceil(atrValue * atrMultiple / syminfo.mintick)))
+float stopDistance = stopTicks * syminfo.mintick
+float equityAvailable = math.max(strategy.equity, 0)
+float budgetQty = equityAvailable * budgetFraction / (referencePrice * syminfo.pointvalue * (MARGIN_PERCENT / 100 + 2 * feeRate))
+// 止损跳数相对成交价；风险另计退出滑点及保守的多空双边手续费。
+float unitRisk = (stopDistance + slipDistance + feeRate * (2 * referencePrice + stopDistance + slipDistance)) * syminfo.pointvalue
+float riskQty = not na(unitRisk) and unitRisk > 0 ? equityAvailable * riskFraction / unitRisk : 0
+float rawQty = useAtrStop ? math.min(budgetQty, riskQty) : budgetQty
+// 将用户步长向上对齐至品种最小数量单位，实际 OKX 张数需在执行端另行换算。
+float symbolStep = syminfo.mincontract
+float effectiveStep = math.ceil(quantityStep / symbolStep) * symbolStep
+float plannedQty = math.floor(rawQty / effectiveStep) * effectiveStep
+
+var int activeStopTicks = na
+var int submittedLong = 0
+var int submittedShort = 0
+var int previousClosed = 0
+bool closedThisBar = strategy.closedtrades > previousClosed
+previousClosed := strategy.closedtrades
+if strategy.position_size == 0
+    activeStopTicks := na
+
+int orderAction = 0
+string statusText = not ready ? "等待均线历史数据" : "等待顺势金叉 / 死叉"
+if barstate.isconfirmed
+    // 反向趋势只平已有仓位，不在同一根提交反手单，原止损在平仓前保持有效。
+    if strategy.position_size > 0 and bearish
+        strategy.close("做多", comment = "四小时转空平多", alert_message = "卖出平多：已确认的四小时趋势转空")
+        orderAction := 2
+        statusText := "已提交平多，等待模拟成交"
+    else if strategy.position_size < 0 and bullish
+        strategy.close("做空", comment = "四小时转多平空", alert_message = "买入平空：已确认的四小时趋势转多")
+        orderAction := -2
+        statusText := "已提交平空，等待模拟成交"
+    else if strategy.position_size != 0
+        statusText := useAtrStop ? "持仓，等待止损或四小时转向" : "持仓，等待四小时转向"
+    else if closedThisBar
+        statusText := "本根已平仓，等待下一次新交叉"
+    else if not entriesEnabled
+        statusText := "已暂停新开仓"
+    else if longSignal or shortSignal
+        if plannedQty > 0
+            activeStopTicks := useAtrStop ? stopTicks : na
+            if longSignal
+                strategy.entry("做多", strategy.long, qty = plannedQty, comment = "顺四小时买入开多", alert_message = "买入开多：四小时多头，五分钟金叉")
+                if useAtrStop
+                    strategy.exit("多单止损", from_entry = "做多", loss = activeStopTicks, comment = "多单止损平仓", alert_message = "卖出平多：固定 ATR 止损成交")
+                submittedLong += 1
+                orderAction := 1
+                statusText := "已提交开多，等待模拟成交"
+            else
+                strategy.entry("做空", strategy.short, qty = plannedQty, comment = "顺四小时卖出开空", alert_message = "卖出开空：四小时空头，五分钟死叉")
+                if useAtrStop
+                    strategy.exit("空单止损", from_entry = "做空", loss = activeStopTicks, comment = "空单止损平仓", alert_message = "买入平空：固定 ATR 止损成交")
+                submittedShort += 1
+                orderAction := -1
+                statusText := "已提交开空，等待模拟成交"
+        else
+            statusText := "权益或预算不足，数量取整后为零"
+
+float stopPrice = strategy.position_size > 0 ? strategy.position_avg_price - activeStopTicks * syminfo.mintick : strategy.position_size < 0 ? strategy.position_avg_price + activeStopTicks * syminfo.mintick : na
+float positionNotional = math.abs(strategy.position_size) * close * syminfo.pointvalue
+float estimatedMargin = positionNotional * MARGIN_PERCENT / 100
+float exposure = strategy.equity > 0 ? positionNotional / strategy.equity : na
+plot(htfEma, "已收盘四小时趋势均线", color = color.yellow, linewidth = 2)
+plot(fastEma, "五分钟快线", color = color.blue)
+plot(slowEma, "五分钟慢线", color = color.red)
+plot(stopPrice, "持仓固定止损价", color = color.orange, linewidth = 2, style = plot.style_linebr)
+plotshape(showSignals and orderAction == 1, title = "开多提交", text = "买入开多", style = shape.labelup, location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(showSignals and orderAction == -1, title = "开空提交", text = "卖出开空", style = shape.labeldown, location = location.abovebar, color = color.red, textcolor = color.white, size = size.tiny)
+plot(plannedQty, "下一笔估算数量（币）", display = display.data_window)
+plot(exposure, "当前名义敞口（权益倍数）", display = display.data_window)
+plot(strategy.closedtrades, "已平仓笔数", display = display.data_window)
+
+var table statusPanel = table.new(position.top_right, 2, 11, bgcolor = color.new(color.black, 20), border_width = 1)
+if barstate.islast or barstate.islastconfirmedhistory
+    if showStatus
+        color trendColor = bullish ? color.lime : bearish ? color.red : color.orange
+        string directionText = not ready ? "历史数据不足" : bullish ? "多头，只找开多" : bearish ? "空头，只找开空" : "中性，等待"
+        string positionText = strategy.position_size > 0 ? "持多" : strategy.position_size < 0 ? "持空" : "空仓"
+        table.cell(statusPanel, 0, 0, "四小时方向", text_color = color.white)
+        table.cell(statusPanel, 1, 0, directionText, text_color = trendColor)
+        table.cell(statusPanel, 0, 1, "本根处理", text_color = color.white)
+        table.cell(statusPanel, 1, 1, statusText, text_color = color.white)
+        table.cell(statusPanel, 0, 2, "已用四小时收盘（UTC）", text_color = color.white)
+        table.cell(statusPanel, 1, 2, na(htfClosedAt) ? "—" : str.format_time(htfClosedAt, "MM-dd HH:mm", "UTC"), text_color = color.white)
+        table.cell(statusPanel, 0, 3, "模拟仓位（币）", text_color = color.white)
+        table.cell(statusPanel, 1, 3, positionText + " / " + str.tostring(math.abs(strategy.position_size), "#.########"), text_color = color.white)
+        table.cell(statusPanel, 0, 4, "名义仓位 / 估算保证金", text_color = color.white)
+        table.cell(statusPanel, 1, 4, str.tostring(positionNotional, "#.##") + " / " + str.tostring(estimatedMargin, "#.##") + " USDT", text_color = color.white)
+        table.cell(statusPanel, 0, 5, "名义敞口 / 权益", text_color = color.white)
+        table.cell(statusPanel, 1, 5, na(exposure) ? "—" : str.tostring(exposure, "#.##") + " 倍", text_color = color.white)
+        table.cell(statusPanel, 0, 6, "保证金机制 / 每笔预算", text_color = color.white)
+        table.cell(statusPanel, 1, 6, str.tostring(100 / MARGIN_PERCENT, "#.#") + " 倍 / " + str.tostring(budgetFraction * 100, "#.#") + "%", text_color = color.white)
+        table.cell(statusPanel, 0, 7, "固定止损 / 计划风险", text_color = color.white)
+        table.cell(statusPanel, 1, 7, not useAtrStop ? "止损关闭，风险限制不生效" : (na(stopPrice) ? "空仓" : str.tostring(stopPrice, format.mintick)) + " / " + str.tostring(riskFraction * 100, "#.#") + "%", text_color = color.white)
+        table.cell(statusPanel, 0, 8, "开仓提交 多 / 空", text_color = color.white)
+        table.cell(statusPanel, 1, 8, str.tostring(submittedLong) + " / " + str.tostring(submittedShort), text_color = color.white)
+        table.cell(statusPanel, 0, 9, "已平仓 / 未平仓", text_color = color.white)
+        table.cell(statusPanel, 1, 9, str.tostring(strategy.closedtrades) + " / " + str.tostring(strategy.opentrades), text_color = color.white)
+        table.cell(statusPanel, 0, 10, "下一笔估算数量（币）", text_color = color.white)
+        table.cell(statusPanel, 1, 10, ready ? str.tostring(plannedQty, "#.########") : "等待数据", text_color = color.white)
+    else
+        table.clear(statusPanel, 0, 0, 1, 10)

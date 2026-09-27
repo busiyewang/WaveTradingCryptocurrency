@@ -1,0 +1,12 @@
+{
+  "id": "{{strategy.order.id}}",
+  "action": "{{strategy.order.action}}",
+  "marketPosition": "{{strategy.market_position}}",
+  "prevMarketPosition": "{{strategy.prev_market_position}}",
+  "instrument": "{{ticker}}",
+  "signalToken": "REPLACE_WITH_OKX_SIGNAL_TOKEN",
+  "timestamp": "{{timenow}}",
+  "maxLag": "60",
+  "investmentType": "base",
+  "amount": "{{strategy.order.contracts}}"
+}

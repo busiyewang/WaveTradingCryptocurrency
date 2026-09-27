@@ -1,0 +1,42 @@
+//@version=6
+indicator("四小时趋势五分钟买卖信号", overlay = true)
+
+// 与同名双向杠杆策略使用相同的均线方向、交叉和预热规则。
+// 本指标只提醒候选入场，不记录模拟持仓；实际开仓、平仓和止损请看策略成交警报。
+int htfLength = input.int(200, "4 小时趋势均线周期", minval = 2, group = "均线规则")
+int fastLength = input.int(9, "5 分钟快线周期", minval = 1, group = "均线规则")
+int slowLength = input.int(21, "5 分钟慢线周期", minval = 2, group = "均线规则")
+int atrLength = input.int(14, "ATR 预热周期（与策略一致）", minval = 1, group = "均线规则")
+bool alertsEnabled = input.bool(true, "启用买卖提醒", group = "警报")
+bool showSignals = input.bool(true, "显示买卖信号", group = "显示")
+
+if barstate.isfirst
+    if not chart.is_standard or timeframe.in_seconds() != 300
+        runtime.error("请切换为标准蜡烛图、5 分钟周期，再运行本指标。")
+    if syminfo.prefix != "OKX" or (syminfo.ticker != "ETHUSDT.P" and syminfo.ticker != "BTCUSDT.P") or syminfo.pointvalue != 1
+        runtime.error("请使用 OKX:ETHUSDT.P 或 OKX:BTCUSDT.P 线性永续图表。")
+    if fastLength >= slowLength
+        runtime.error("5 分钟快线周期必须小于慢线周期。")
+
+// 已确认的四小时收盘价与均线一起判断方向，不使用发展中的四小时 K 线。
+[htfClose, htfEma, htfClosedAt, htfCount] = request.security(syminfo.tickerid, "240",
+     [close[1], ta.ema(close, htfLength)[1], time_close[1], bar_index[1] + 1],
+     gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+float fastEma = ta.ema(close, fastLength)
+float slowEma = ta.ema(close, slowLength)
+float atrValue = ta.atr(atrLength)
+bool crossUp = ta.crossover(fastEma, slowEma)
+bool crossDown = ta.crossunder(fastEma, slowEma)
+bool ready = htfCount >= htfLength and bar_index + 1 >= slowLength and not na(htfEma) and not na(atrValue)
+bool bullish = ready and htfClose > htfEma
+bool bearish = ready and htfClose < htfEma
+bool longSignal = barstate.isconfirmed and bullish and crossUp
+bool shortSignal = barstate.isconfirmed and bearish and crossDown
+
+plot(htfEma, "已收盘四小时趋势均线", color = color.yellow, linewidth = 2)
+plot(fastEma, "五分钟快线", color = color.blue)
+plot(slowEma, "五分钟慢线", color = color.red)
+plotshape(showSignals and longSignal, title = "买入候选", text = "买入开多候选", style = shape.labelup, location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(showSignals and shortSignal, title = "卖出候选", text = "卖出开空候选", style = shape.labeldown, location = location.abovebar, color = color.red, textcolor = color.white, size = size.tiny)
+alertcondition(alertsEnabled and longSignal, title = "买入信号", message = "买入开多候选：{{ticker}}，四小时多头，五分钟金叉，收盘价 {{close}}。这是候选提醒，不是成交。")
+alertcondition(alertsEnabled and shortSignal, title = "卖出信号", message = "卖出开空候选：{{ticker}}，四小时空头，五分钟死叉，收盘价 {{close}}。这是开空候选，不是平多成交。")

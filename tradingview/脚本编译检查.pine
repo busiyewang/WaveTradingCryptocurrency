@@ -1,0 +1,3 @@
+//@version=6
+strategy("脚本编译检查", overlay=true)
+plot(close, title="收盘价", color=color.blue)
