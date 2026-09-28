@@ -1,0 +1,105 @@
+//@version=6
+const float FEE_PERCENT = 0.05
+const int SLIPPAGE_TICKS = 2
+indicator("一分钟顺势合约买卖信号", overlay = true)
+
+// 本指标提示经过方向、回踩、量价及计划距离筛选的入场候选。
+// 没有模拟仓位、风险数量、日内暂停和冷却，不能代替策略成交警报。
+// 实际止盈止损及回测使用：一分钟顺势合约止盈止损策略.pine。
+// 共同信号开始：配套策略保持此段一致。
+float slopeThreshold = input.float(0.03, "大级别每根均线变化 / ATR 下限", minval = 0, step = 0.01, group = "方向")
+int signalWindow = input.int(3, "均线与 MACD 交叉最大间隔（根）", minval = 0, maxval = 10, group = "执行")
+int pullbackWindow = input.int(5, "最近缩量回踩有效期（根）", minval = 1, maxval = 20, group = "执行")
+float volumeMultiple = input.float(1.2, "触发成交量 / 前二十根均量", minval = 1, step = 0.1, group = "执行")
+bool useVwap = input.bool(false, "额外要求价格位于日内 VWAP 顺势一侧", group = "执行")
+int swingLength = input.int(5, "止损参考最近高低点根数", minval = 2, maxval = 30, group = "止盈止损")
+float atrMultiple = input.float(1.5, "止损距离至少为 ATR14 的倍数", minval = 1, step = 0.1, group = "止盈止损")
+float minStopPercent = input.float(0.15, "最小止损距离（价格 %）", minval = 0.05, step = 0.05, group = "止盈止损")
+float maxStopPercent = input.float(0.6, "最大止损距离（价格 %，超出不入场）", minval = 0.1, maxval = 2, step = 0.05, group = "止盈止损")
+float netRR = input.float(2, "止盈目标的计划净盈亏比", minval = 2, maxval = 5, step = 0.1, group = "止盈止损")
+float maxTargetPercent = input.float(2, "最大目标距离（价格 %，超出不入场）", minval = 0.2, maxval = 5, step = 0.1, group = "止盈止损")
+bool showSignals = input.bool(true, "显示入场候选", group = "显示")
+
+if barstate.isfirst
+    if not chart.is_standard or timeframe.in_seconds() != 60
+        runtime.error("请使用标准蜡烛图、1 分钟周期。")
+    if syminfo.prefix != "OKX" or (syminfo.ticker != "ETHUSDT.P" and syminfo.ticker != "BTCUSDT.P") or syminfo.pointvalue != 1
+        runtime.error("本版适用于 OKX:ETHUSDT.P 或 OKX:BTCUSDT.P 的线性永续图表。")
+    if minStopPercent > maxStopPercent
+        runtime.error("最小止损距离不能大于最大止损距离。")
+
+f_context() =>
+    float trend = ta.ema(close, 40)
+    float volatility = ta.atr(14)
+    [dif, dea, histogram] = ta.macd(close, 10, 20, 5)
+    [close[1], trend[1], trend[2], volatility[1], dif[1], dea[1], bar_index[1] + 1]
+
+[hourClose, hourEma, hourPreviousEma, hourAtr, hourDif, hourDea, hourCount] = request.security(syminfo.tickerid, "60", f_context(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[quarterClose, quarterEma, quarterPreviousEma, quarterAtr, quarterDif, quarterDea, quarterCount] = request.security(syminfo.tickerid, "15", f_context(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+float ema5 = ta.ema(close, 5)
+float ema10 = ta.ema(close, 10)
+float ema20 = ta.ema(close, 20)
+float ema40 = ta.ema(close, 40)
+[dif, dea, histogram] = ta.macd(close, 10, 20, 5)
+float hist = 2 * histogram
+float atr = ta.atr(14)
+float priorVolume = ta.sma(volume, 20)[1]
+float vwap = ta.vwap(hlc3, timeframe.change("1D"))
+bool ready = hourCount >= 60 and quarterCount >= 60 and bar_index >= 60 and hourAtr > 0 and quarterAtr > 0 and atr > 0 and priorVolume > 0
+float hourSlope = (hourEma - hourPreviousEma) / hourAtr
+float quarterSlope = (quarterEma - quarterPreviousEma) / quarterAtr
+bool longTrend = ready and hourClose > hourEma and hourSlope > slopeThreshold and quarterClose > quarterEma and quarterSlope > slopeThreshold and hourDif > hourDea and hourDea > 0
+bool shortTrend = ready and hourClose < hourEma and hourSlope < -slopeThreshold and quarterClose < quarterEma and quarterSlope < -slopeThreshold and hourDif < hourDea and hourDea < 0
+bool emaUp = ta.crossover(ema5, ema10)
+bool emaDown = ta.crossunder(ema5, ema10)
+bool macdUp = ta.crossover(dif, dea)
+bool macdDown = ta.crossunder(dif, dea)
+int sinceEmaUp = ta.barssince(emaUp)
+int sinceEmaDown = ta.barssince(emaDown)
+int sinceMacdUp = ta.barssince(macdUp)
+int sinceMacdDown = ta.barssince(macdDown)
+// 回踩与放量触发可以分属不同的 K 线，回踩要求收盘守住 EMA40。
+int sinceLongPullback = ta.barssince(low <= ema20 and close >= ema40 and volume < priorVolume)
+int sinceShortPullback = ta.barssince(high >= ema20 and close <= ema40 and volume < priorVolume)
+bool volumeOK = volume >= priorVolume * volumeMultiple
+bool longTiming = close > ema40 and ema5 > ema10 and dif > dea and dea > 0 and hist > hist[1] and sinceEmaUp <= signalWindow and sinceMacdUp <= signalWindow and (emaUp or macdUp)
+bool shortTiming = close < ema40 and ema5 < ema10 and dif < dea and dea < 0 and hist < hist[1] and sinceEmaDown <= signalWindow and sinceMacdDown <= signalWindow and (emaDown or macdDown)
+bool longSetup = barstate.isconfirmed and longTrend and longTiming and sinceLongPullback <= pullbackWindow and volumeOK and (not useVwap or close > vwap)
+bool shortSetup = barstate.isconfirmed and shortTrend and shortTiming and sinceShortPullback <= pullbackWindow and volumeOK and (not useVwap or close < vwap)
+
+float recentLow = ta.lowest(low, swingLength)
+float recentHigh = ta.highest(high, swingLength)
+float longDistance = math.max(close - recentLow + atr * 0.2, math.max(atr * atrMultiple, close * minStopPercent / 100))
+float shortDistance = math.max(recentHigh - close + atr * 0.2, math.max(atr * atrMultiple, close * minStopPercent / 100))
+
+// 根据预计成交价分别计算多空成本。止盈用限价，止损计入设置的退出滑点。
+f_plan(int direction, float distance) =>
+    float fee = FEE_PERCENT / 100
+    float slip = SLIPPAGE_TICKS * syminfo.mintick
+    float entry = close + direction * slip
+    int lossTicks = int(math.ceil(distance / syminfo.mintick))
+    float lossDistance = lossTicks * syminfo.mintick
+    float stopFill = entry - direction * (lossDistance + slip)
+    float riskPerCoin = lossDistance + slip + fee * (entry + stopFill)
+    float targetDistance = (netRR * riskPerCoin + 2 * fee * entry) / (1 - direction * fee)
+    int profitTicks = int(math.ceil(targetDistance / syminfo.mintick))
+    float targetFill = entry + direction * profitTicks * syminfo.mintick
+    float netReward = profitTicks * syminfo.mintick - fee * (entry + targetFill)
+    bool valid = ready and entry > 0 and stopFill > 0 and targetFill > 0 and lossDistance <= close * maxStopPercent / 100 and profitTicks * syminfo.mintick <= close * maxTargetPercent / 100 and netReward >= netRR * riskPerCoin
+    [lossTicks, profitTicks, riskPerCoin, valid]
+
+[longLossTicks, longProfitTicks, longRisk, longPlanOK] = f_plan(1, longDistance)
+[shortLossTicks, shortProfitTicks, shortRisk, shortPlanOK] = f_plan(-1, shortDistance)
+bool buySignal = longSetup and longPlanOK
+bool sellSignal = shortSetup and shortPlanOK
+plot(ema5, "一分钟 EMA5", color = color.white)
+plot(ema10, "一分钟 EMA10", color = color.red)
+plot(ema20, "一分钟 EMA20", color = color.aqua)
+plot(ema40, "一分钟 EMA40", color = color.orange, linewidth = 2)
+plot(useVwap ? vwap : na, "日内 VWAP", color = color.purple)
+plotshape(showSignals and buySignal, title = "开多候选", text = "开多候选", style = shape.labelup, location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(showSignals and sellSignal, title = "开空候选", text = "开空候选", style = shape.labeldown, location = location.abovebar, color = color.red, textcolor = color.white, size = size.tiny)
+// 共同信号结束。
+bool alertsEnabled = input.bool(true, "启用买卖候选提醒", group = "警报")
+alertcondition(alertsEnabled and buySignal, title = "买入信号", message = "{{ticker}} 一分钟买入开多候选，收盘价 {{close}}。大级别同向，缩量回踩后量价触发；这不是成交，也不代表已挂止损。")
+alertcondition(alertsEnabled and sellSignal, title = "卖出信号", message = "{{ticker}} 一分钟卖出开空候选，收盘价 {{close}}。大级别同向，缩量回踩后量价触发；这是开空候选，不是平多成交。")
