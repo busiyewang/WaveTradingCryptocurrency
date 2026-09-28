@@ -1,0 +1,33 @@
+{
+  "python_tests": {
+    "new_passed": 11,
+    "project_passed": 80,
+    "project_skipped": 2
+  },
+  "pine_validation": "manual source review and delimiter check only; official compile not run",
+  "files": {
+    "tradingview/ETH四小时一小时过滤五分钟回踩策略.pine": "730ef3ee99776801486f4e44c34d4d1ad0e94cd45e901efd667fca1040ad9faa",
+    "research/eth_mtf/download_okx.py": "82b4e8d80db8d3eca3814e65d0a9e6480b9e3b263fc7d0e0c4ed8eff09ca3af0",
+    "research/eth_mtf/backtest.py": "737a13b98631d87949a3adbf3fb0cfce52a9752117d58ae07fabfeef4c855865",
+    "research/eth_mtf/test_research.py": "fb1c869d09b2ce9e9fd95c1a02d227b3f0abbb6d3a5647961d6882fcbe915491"
+  },
+  "pine_warning_followup": {
+    "static_checks": "passed",
+    "changes": [
+      "unconditional UTC day change calculation",
+      "confirmed historical/realtime table refresh",
+      "ASCII punctuation and detailed input diagnostics"
+    ],
+    "official_compile": "not run",
+    "backtest_rules": "unchanged"
+  },
+  "v3_1_diagnostics": {
+    "static_checks": "passed",
+    "table_cells": 28,
+    "runtime_issue": "red exclamation visible in user screenshot; exact message still pending",
+    "bar_magnifier_default": false,
+    "entry_rules": "unchanged",
+    "official_compile": "not run",
+    "September_Python_entries": 39
+  }
+}

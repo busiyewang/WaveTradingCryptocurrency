@@ -1,0 +1,268 @@
+//@version=6
+// 研究版本 eth-mtf-research-v3:固定假设,未经参数优化,不保证盈利.
+// 加载到OKX ETHUSDT永续标准5分钟图;内部读取已收盘4小时及1小时.
+// Python以真实1分钟K线撮合;本Pine默认普通回测,不依赖高精度会员功能.
+// 有相应权限时可在属性中手动启用放大镜;撮合精度不同会改变回测结果.
+// 不读取外部Python数据或逐笔成交;成交量来自当前图表.资金费未计入TradingView策略测试器.
+strategy("ETH四小时方向 | 一小时过滤 | 五分钟回踩 v3.1诊断", overlay=true, initial_capital=1000, currency=currency.USDT, pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2, margin_long=100, margin_short=100, process_orders_on_close=false, calc_on_every_tick=false, calc_on_order_fills=false, use_bar_magnifier=false, backtest_fill_limits_assumption=1)
+
+int hFastLen = input.int(20, "4小时快EMA", minval=2, group="方向")
+int hSlowLen = input.int(60, "4小时慢EMA", minval=3, group="方向")
+bool useH1Filter = input.bool(true, "启用已收盘1小时方向过滤", group="方向")
+float minH4GapATR = input.float(0.3, "4小时均线最小间距ATR倍数", minval=0, step=0.1, group="方向")
+bool useH1Exit = input.bool(true, "以1小时慢线失效退出", group="退出")
+int startDate = input.time(timestamp("30 Jul 2026 17:00 +0000"), "回测起点", group="验证区间")
+int endDate = input.time(timestamp("28 Sep 2026 17:00 +0000"), "回测终点", group="验证区间")
+bool restrictDates = input.bool(false, "限定回测时间(结束后仍管理持仓)", group="验证区间")
+int fastLen = input.int(20, "5分钟快EMA", minval=2, group="回踩")
+int slowLen = input.int(60, "5分钟慢EMA", minval=3, group="回踩")
+float impulseATR = input.float(0.5, "初始推动距离:快EMA之外ATR倍数", minval=0.1, step=0.1, group="回踩")
+int minPullBars = input.int(2, "确认前至少经历回踩根数", minval=2, maxval=12, group="回踩")
+int maxPullBars = input.int(12, "回踩最多等待根数", minval=3, maxval=48, group="回踩")
+int maxSetupBars = input.int(36, "推动至确认最多根数", minval=5, maxval=100, group="回踩")
+float riskPct = input.float(0.25, "单笔计划风险占权益 %", minval=0.01, maxval=2, step=0.05, group="风险")
+float maxExposure = input.float(1, "名义仓位/权益上限", minval=0.1, maxval=1, step=0.1, group="风险")
+float qtyStep = input.float(0.001, "数量步长:核对品种单位", minval=0.00000001, group="风险")
+float dayLossLimit = input.float(2, "日初权益回撤暂停 %", minval=0.1, maxval=10, group="风险")
+int maxDailyEntries = input.int(6, "每天最多开仓提交次数", minval=1, group="风险")
+int cooldownBars = input.int(6, "平仓后冷却根数", minval=1, group="风险")
+float stopBufferATR = input.float(0.2, "回踩极值外止损缓冲ATR", minval=0.05, step=0.05, group="退出")
+float minStopATR = input.float(1, "最小止损ATR倍数", minval=0.1, step=0.1, group="退出")
+float minStopPct = input.float(0.25, "最小止损距离 %", minval=0.05, step=0.05, group="退出")
+float maxStopPct = input.float(1.5, "最大止损距离 %", minval=0.1, step=0.1, group="退出")
+float netRR = input.float(1.5, "估算成本后目标盈亏比", minval=0.5, step=0.1, group="退出")
+// Match these two inputs to Strategy Properties if you change the actual simulated costs.
+float feeSidePct = input.float(0.05, "单边手续费 %:与属性同步", minval=0, maxval=5, step=0.01, group="成本估算")
+int slipTicks = input.int(2, "单边滑点ticks:与属性同步", minval=0, group="成本估算")
+
+// 按原因分别报告当前环境;这些检查不会把错误图表静默当作5分钟策略运行.
+if barstate.isfirst
+    if not timeframe.isminutes or timeframe.multiplier != 5
+        runtime.error("[周期不匹配]当前周期=" + timeframe.period + ".请将图表切换到5分钟;4小时与1小时由脚本自动读取.1分钟数据在Python中用于撮合,本Pine不是1分钟入场版本.")
+    if not chart.is_standard
+        runtime.error("[图表类型不匹配]请切换为标准蜡烛图;平均K线,砖形图等合成图表不适用于本策略.")
+    if hFastLen >= hSlowLen
+        runtime.error("[高周期均线参数冲突]快线=" + str.tostring(hFastLen) + ",慢线=" + str.tostring(hSlowLen) + ".快线周期必须小于慢线,默认20/60.")
+    if fastLen >= slowLen
+        runtime.error("[5分钟均线参数冲突]快线=" + str.tostring(fastLen) + ",慢线=" + str.tostring(slowLen) + ".快线周期必须小于慢线,默认20/60.")
+    if minStopPct > maxStopPct
+        runtime.error("[止损参数冲突]最小距离=" + str.tostring(minStopPct) + "% ,最大距离=" + str.tostring(maxStopPct) + "%.最小距离不能大于最大距离.")
+    if minPullBars > maxPullBars
+        runtime.error("[回踩参数冲突]最少根数=" + str.tostring(minPullBars) + ",最多根数=" + str.tostring(maxPullBars) + ".最少根数不能大于最多根数.")
+    if restrictDates and startDate >= endDate
+        runtime.error("[回测时间冲突]起点必须早于终点.请检查'验证区间',或关闭'限定回测时间'.")
+    if syminfo.currency != "USDT" or syminfo.basecurrency != "ETH"
+        runtime.error("[品种不匹配]当前=" + syminfo.tickerid + ",基础币=" + syminfo.basecurrency + ",报价币=" + syminfo.currency + ".请切换至OKX:ETHUSDT.P.")
+
+// H4-01: completed candles only; no unconfirmed HTF values or future pivot backfilling.
+[hClose, hFast, hSlow, hFastPrev, hBars] = request.security(syminfo.tickerid, "240", [close[1], ta.ema(close, hFastLen)[1], ta.ema(close, hSlowLen)[1], ta.ema(close, hFastLen)[2], bar_index[1]], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[oneClose, oneFast, oneSlow, oneFastPrev, oneBars] = request.security(syminfo.tickerid, "60", [close[1], ta.ema(close, hFastLen)[1], ta.ema(close, hSlowLen)[1], ta.ema(close, hFastLen)[2], bar_index[1]], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+float hATR = request.security(syminfo.tickerid, "240", ta.atr(14)[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+float fast = ta.ema(close, fastLen)
+float slow = ta.ema(close, slowLen)
+float atr = ta.atr(14)
+bool ready = not na(hSlow) and not na(hFastPrev) and hBars >= hSlowLen * 3 and bar_index >= slowLen * 3 and not na(atr)
+bool hBullBase = ready and hFast > hSlow and hClose > hSlow and hFast > hFastPrev
+bool hBearBase = ready and hFast < hSlow and hClose < hSlow and hFast < hFastPrev
+bool oneReady = not na(oneFastPrev) and oneBars >= hSlowLen * 5
+bool oneBull = oneReady and oneFast > oneSlow and oneClose > oneSlow and oneFast > oneFastPrev
+bool oneBear = oneReady and oneFast < oneSlow and oneClose < oneSlow and oneFast < oneFastPrev
+bool separated = not na(hATR) and math.abs(hFast - hSlow) >= minH4GapATR * hATR
+bool hBull = hBullBase and separated and (not useH1Filter or oneBull)
+bool hBear = hBearBase and separated and (not useH1Filter or oneBear)
+int hDirection = hBull ? 1 : hBear ? -1 : 0
+
+var float dayEquity = na
+var bool paused = false
+var int dayEntries = 0
+int utcDay = int(math.floor(time / 86400000))
+// 每根K线先计算日界变化, 避免or短路跳过历史函数.
+bool newUtcDay = ta.change(utcDay) != 0
+if na(dayEquity) or newUtcDay
+    // At the new daily interval's first close, use the previous bar-close equity as baseline.
+    dayEquity := nz(strategy.equity[1], strategy.equity)
+    paused := false
+    dayEntries := 0
+float dayDD = dayEquity > 0 ? math.max(0, (dayEquity - strategy.equity) / dayEquity * 100) : 100
+if dayDD >= dayLossLimit
+    paused := true
+
+var int lastExitBar = na
+var int stopCount = 0
+var int targetCount = 0
+var int otherExitCount = 0
+if strategy.closedtrades > nz(strategy.closedtrades[1])
+    lastExitBar := strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1)
+    for trade = int(nz(strategy.closedtrades[1])) to strategy.closedtrades - 1
+        string why = strategy.closedtrades.exit_comment(trade)
+        if why == "结构止损"
+            stopCount += 1
+        else if why == "固定目标"
+            targetCount += 1
+        else
+            otherExitCount += 1
+bool cooled = na(lastExitBar) or bar_index - lastExitBar >= cooldownBars
+bool flat = strategy.position_size == 0
+bool inDates = not restrictDates or (time >= startDate and time_close < endDate)
+bool allowed = ready and flat and cooled and not paused and dayEntries < maxDailyEntries and strategy.equity > 0 and inDates
+
+// SETUP-01: state 0 -> prior impulse -> later pullback -> later confirmation.
+// Every setup is consumed exactly once, even when its risk check rejects entry.
+var int phase = 0
+var int setupSide = 0
+var int setupStart = na
+var int pullStart = na
+var float pullExtreme = na
+var int setups = 0
+var int confirmations = 0
+var int submissions = 0
+var int riskRejected = 0
+var int invalidated = 0
+var float fixedStop = na
+var float fixedTarget = na
+int candidateSide = 0
+float candidateExtreme = na
+bool submittedThisBar = false
+string status = not ready ? "4小时或5分钟指标预热" : not flat ? "管理已有仓位" : paused ? "日内风险暂停" : not cooled ? "平仓冷却" : dayEntries >= maxDailyEntries ? "当日次数上限" : not inDates ? "当前K线在回测区间外" : useH1Filter and not oneReady ? "1小时指标预热未完成" : not separated ? "4小时均线间距不足" : not hBullBase and not hBearBase ? "4小时方向中性" : hDirection == 0 ? "1小时方向未通过过滤" : "等待推动及回踩"
+
+if barstate.isconfirmed
+    if not allowed
+        phase := 0
+        setupSide := 0
+    else
+        if phase != 0
+            bool localInvalid = setupSide == 1 ? (fast <= slow or close <= slow) : (fast >= slow or close >= slow)
+            bool expired = bar_index - setupStart > maxSetupBars or (phase == 2 and bar_index - pullStart > maxPullBars)
+            if hDirection != setupSide or localInvalid or expired
+                phase := 0
+                setupSide := 0
+                invalidated += 1
+                status := "候选失效,重新等待"
+
+        if phase == 0
+            bool impulseLong = hBull and fast > slow and close > fast + atr * impulseATR
+            bool impulseShort = hBear and fast < slow and close < fast - atr * impulseATR
+            if impulseLong or impulseShort
+                setupSide := impulseLong ? 1 : -1
+                phase := 1
+                setupStart := bar_index
+                setups += 1
+                status := "已有推动,等待后续回踩"
+        else if phase == 1
+            bool touch = setupSide == 1 ? low <= fast : high >= fast
+            if touch
+                phase := 2
+                pullStart := bar_index
+                pullExtreme := setupSide == 1 ? low : high
+                status := "回踩开始,等待确认"
+            else
+                status := "等待回踩快EMA"
+        else if phase == 2
+            pullExtreme := setupSide == 1 ? math.min(pullExtreme, low) : math.max(pullExtreme, high)
+            // minPullBars counts completed bars before this confirmation bar.
+            bool mature = bar_index - pullStart >= minPullBars
+            bool confirmed = setupSide == 1 ? (close > fast and close > high[1] and close > open) : (close < fast and close < low[1] and close < open)
+            if mature and confirmed
+                candidateSide := setupSide
+                candidateExtreme := pullExtreme
+                confirmations += 1
+                phase := 0
+                setupSide := 0
+                status := "回踩确认,检查风险距离"
+            else
+                status := "回踩中,等待转强/转弱"
+
+// ORDER-01: fixed absolute structure stop and target, submitted together with the market entry.
+// Next-open fills can differ from the planned signal-close entry; risk is an estimate, not a cap.
+if candidateSide != 0
+    float tick = syminfo.mintick
+    float slip = slipTicks * tick
+    float plannedEntry = close + candidateSide * slip
+    float minDistance = math.max(atr * minStopATR, plannedEntry * minStopPct / 100)
+    float structureStop = candidateExtreme - candidateSide * atr * stopBufferATR
+    float stopCandidate = candidateSide == 1 ? math.min(structureStop, plannedEntry - minDistance) : math.max(structureStop, plannedEntry + minDistance)
+    stopCandidate := candidateSide == 1 ? math.floor(stopCandidate / tick) * tick : math.ceil(stopCandidate / tick) * tick
+    float distance = candidateSide * (plannedEntry - stopCandidate)
+    float fee = feeSidePct / 100
+    // Include stop exit slippage and entry + stop-exit commissions, at planned prices.
+    float estimatedStopFill = stopCandidate - candidateSide * slip
+    float lossPerUnit = distance + slip + fee * (plannedEntry + estimatedStopFill)
+    // Solve for target price including commission at the target price (linear USDT model).
+    float profitDistance = (netRR * lossPerUnit + 2 * fee * plannedEntry) / (1 - candidateSide * fee)
+    float targetCandidate = plannedEntry + candidateSide * profitDistance
+    targetCandidate := candidateSide == 1 ? math.ceil(targetCandidate / tick) * tick : math.floor(targetCandidate / tick) * tick
+    float riskBudget = strategy.equity * riskPct / 100
+    float byRisk = riskBudget / (lossPerUnit * syminfo.pointvalue)
+    // Small margin reserve for costs; next-open gaps can still alter actual exposure.
+    float byExposure = strategy.equity * maxExposure * 0.99 / (plannedEntry * syminfo.pointvalue)
+    float qty = math.floor(math.min(byRisk, byExposure) / qtyStep) * qtyStep
+    bool riskOK = stopCandidate > 0 and targetCandidate > 0 and lossPerUnit > 0 and distance / plannedEntry * 100 <= maxStopPct and qty >= qtyStep
+    if riskOK
+        fixedStop := stopCandidate
+        fixedTarget := targetCandidate
+        if candidateSide == 1
+            strategy.entry("L", strategy.long, qty=qty, comment="5分钟回踩确认多")
+            strategy.exit("LX", "L", stop=fixedStop, limit=fixedTarget, comment_loss="结构止损", comment_profit="固定目标")
+        else
+            strategy.entry("S", strategy.short, qty=qty, comment="5分钟反弹确认空")
+            strategy.exit("SX", "S", stop=fixedStop, limit=fixedTarget, comment_loss="结构止损", comment_profit="固定目标")
+        submissions += 1
+        submittedThisBar := true
+        dayEntries += 1
+        status := "已提交:下一根开盘模拟成交"
+    else
+        riskRejected += 1
+        status := "拒绝:止损过宽/数量不足/价格无效"
+
+// EXIT-01: preserve initial prices. No automatic 120-minute exit and no stop widening.
+if strategy.position_size > 0
+    strategy.exit("LX", "L", stop=fixedStop, limit=fixedTarget, comment_loss="结构止损", comment_profit="固定目标")
+if strategy.position_size < 0
+    strategy.exit("SX", "S", stop=fixedStop, limit=fixedTarget, comment_loss="结构止损", comment_profit="固定目标")
+if not flat
+    bool reverseH4 = strategy.position_size > 0 ? hBearBase : hBullBase
+    bool localFailure = strategy.position_size > 0 ? (close < slow and close[1] < slow[1]) : (close > slow and close[1] > slow[1])
+    bool oneFailure = oneReady and (strategy.position_size > 0 ? oneClose < oneSlow : oneClose > oneSlow)
+    bool structureFailure = useH1Exit ? oneFailure : localFailure
+    if paused or reverseH4 or structureFailure
+        strategy.close_all(comment=paused ? "日内风险退出" : reverseH4 ? "4小时反向退出" : useH1Exit ? "1小时结构失效" : "5分钟结构失效")
+
+plot(fast, "5分钟快EMA", color=color.orange)
+plot(slow, "5分钟慢EMA", color=color.blue)
+plot(not flat or submittedThisBar ? fixedStop : na, "固定结构止损", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(not flat or submittedThisBar ? fixedTarget : na, "固定目标", color=color.lime, linewidth=2, style=plot.style_linebr)
+plot(hDirection, "已确认4小时及1小时过滤:多1空-1观望0", display=display.data_window)
+bgcolor(hBull ? color.new(color.green, 94) : hBear ? color.new(color.red, 94) : na)
+var table panel = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 15))
+// 先绘制最后一根已确认历史K线的面板, 实时仅在收盘后更新.
+// 保持按收盘计算, 不为刷新面板启用逐笔重算.
+if barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfirmed)
+    table.cell(panel, 0, 0, "已收盘多周期过滤", text_color=color.white)
+    table.cell(panel, 1, 0, not ready ? "预热" : hBull ? "只做多" : hBear ? "只做空" : "观望", text_color=hBull ? color.lime : hBear ? color.red : color.orange)
+    table.cell(panel, 0, 1, "状态", text_color=color.white)
+    table.cell(panel, 1, 1, status, text_color=color.white)
+    table.cell(panel, 0, 2, "推动候选/回踩确认", text_color=color.white)
+    table.cell(panel, 1, 2, str.tostring(setups) + "/" + str.tostring(confirmations), text_color=color.white)
+    table.cell(panel, 0, 3, "提交/风险拒绝/候选失效", text_color=color.white)
+    table.cell(panel, 1, 3, str.tostring(submissions) + "/" + str.tostring(riskRejected) + "/" + str.tostring(invalidated), text_color=color.white)
+    table.cell(panel, 0, 4, "当日提交/上限", text_color=color.white)
+    table.cell(panel, 1, 4, str.tostring(dayEntries) + "/" + str.tostring(maxDailyEntries), text_color=color.white)
+    table.cell(panel, 0, 5, "日初权益回撤", text_color=color.white)
+    table.cell(panel, 1, 5, str.tostring(dayDD, "#.##") + "%" + (paused ? " 暂停" : ""), text_color=color.white)
+    table.cell(panel, 0, 6, "止盈/止损/其他退出", text_color=color.white)
+    table.cell(panel, 1, 6, str.tostring(targetCount) + "/" + str.tostring(stopCount) + "/" + str.tostring(otherExitCount), text_color=color.white)
+    table.cell(panel, 0, 7, "已平仓/持仓", text_color=color.white)
+    table.cell(panel, 1, 7, str.tostring(strategy.closedtrades) + "/" + str.tostring(strategy.opentrades), text_color=color.white)
+    table.cell(panel, 0, 8, "研究版本", text_color=color.white)
+    table.cell(panel, 1, 8, "v3.1诊断:普通回测", text_color=color.orange)
+
+    table.cell(panel, 0, 9, "4小时/5分钟预热", text_color=color.white)
+    table.cell(panel, 1, 9, str.tostring(nz(hBars, -1) + 1) + "/" + str.tostring(hSlowLen * 3 + 1) + " | " + str.tostring(bar_index + 1) + "/" + str.tostring(slowLen * 3 + 1), text_color=ready ? color.lime : color.orange)
+    table.cell(panel, 0, 10, "1小时预热", text_color=color.white)
+    table.cell(panel, 1, 10, str.tostring(nz(oneBars, -1) + 1) + "/" + str.tostring(hSlowLen * 5 + 1) + (useH1Filter ? " (过滤已启用)" : " (过滤已关闭)"), text_color=oneReady ? color.lime : color.orange)
+    table.cell(panel, 0, 11, "4小时趋势/间距", text_color=color.white)
+    table.cell(panel, 1, 11, (hBullBase ? "多" : hBearBase ? "空" : "中性或预热") + "/" + (separated ? "间距通过" : "间距未通过"), text_color=color.white)
+    table.cell(panel, 0, 12, "1小时方向/时间区间", text_color=color.white)
+    table.cell(panel, 1, 12, (oneBull ? "多" : oneBear ? "空" : "中性或预热") + "/" + (inDates ? "时间允许" : "区间外"), text_color=color.white)
+    table.cell(panel, 0, 13, "初始/当前模拟权益", text_color=color.white)
+    table.cell(panel, 1, 13, str.tostring(strategy.initial_capital, "#.##") + "/" + str.tostring(strategy.equity, "#.##"), text_color=color.white)
