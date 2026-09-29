@@ -7,16 +7,10 @@
 //   但两个币各只有一个主要4小时中枢，合计2~3个独立样本，且同期ETH涨9.4%、BTC涨28%，网格未跑赢持币。**未验证盈利。**
 // 推荐加载到 OKX ETHUSDT.P / BTCUSDT.P 标准 5 分钟图（任何低于4小时的周期都可，越细撮合越接近Python）。
 // TradingView 限价成交假设（K线触及即成交，穿透1tick）比真实盘口宽松，回测数字会偏好看。
-// v1.1：独立交易起点、ANY逐格退出、修复4小时首次检查；缠论引擎保持原样。
-// 未在 TradingView 编译验证。新警报须在所选交易起点之前创建，且实盘应为空仓。
-// Pine 不读取欧易持仓；本版本不能自动接管旧仓，也不保证Webhook一定成交。
-strategy("缠论中枢网格合约策略 v1.1仓位修复", overlay=true, close_entries_rule="ANY", initial_capital=1000, currency=currency.USDT, pyramiding=40, commission_type=strategy.commission.percent, commission_value=0.02, slippage=0, margin_long=100, margin_short=100, process_orders_on_close=false, calc_on_every_tick=false, calc_on_order_fills=false, use_bar_magnifier=false, backtest_fill_limits_assumption=1, max_bars_back=100, max_lines_count=200, max_labels_count=200)
+// 未在 TradingView 官方编译；遇到错误请复制完整错误文字。
+strategy("缠论中枢网格合约策略 v1研究", overlay=true, initial_capital=1000, currency=currency.USDT, pyramiding=40, commission_type=strategy.commission.percent, commission_value=0.02, slippage=0, margin_long=100, margin_short=100, process_orders_on_close=false, calc_on_every_tick=false, calc_on_order_fills=false, use_bar_magnifier=false, backtest_fill_limits_assumption=1, max_bars_back=100, max_lines_count=200, max_labels_count=200)
 
 // ---------- 参数 ----------
-// 关闭交易时仍计算缠论结构，但不产生模拟订单。修改输入不会更新已有警报快照。
-bool tradingEnabled = input.bool(false, "启用交易（创建新警报前设置）", group="交易启动")
-int tradeStart = input.time(timestamp("30 Sep 2026 00:00 +0000"), "交易开始时间（实盘须选创建警报之后的时间）", group="交易启动")
-bool tradingWindow = tradingEnabled and time >= tradeStart
 float stepPct = input.float(1.0, "网格最小步长 %（中枢等分，实际步长≥此值）", minval=0.2, step=0.1, group="网格")
 int minIntervals = input.int(4, "中枢至少可放格数", minval=2, maxval=40, group="网格")
 float capMult = input.float(1.0, "网格总名义/权益上限", minval=0.1, maxval=3, step=0.1, group="网格")
@@ -586,7 +580,7 @@ var int gridBreaks = 0
 var int gridFlips = 0
 var int reopenCount = 0
 var int prevClosed = 0
-var int lastH4Closed = na
+var float lastH4Closed = na
 
 // 持仓格：按入场 id 判断每条线是否已有仓位
 f_line_open(int k) =>
@@ -621,7 +615,7 @@ bool inRange = haveCenter and close >= h4ZD and close <= h4ZG
 // 4小时新收盘：中枢破坏检查（按持仓格记录的中枢边界）；重开检查
 bool closeAllNow = false
 string closeReason = ""
-if not na(h4Closed) and (na(lastH4Closed) or h4Closed != lastH4Closed)
+if not na(h4Closed) and h4Closed != lastH4Closed
     lastH4Closed := h4Closed
     for k = 0 to MAX_LINES - 1
         int sd = array.get(lotSide, k)
@@ -645,12 +639,7 @@ for k = 0 to MAX_LINES - 1
         closeAllNow := true
         closeReason := "方向反转清仓"
 
-if not tradingWindow
-    // 从起点之前不生成任何订单，避免把历史模拟仓位带入新警报。
-    strategy.cancel_all()
-else if closeAllNow
-    // 先撤销网格开/平仓挂单，再创建清仓单，避免遗留退出单竞争成交。
-    strategy.cancel_all()
+if closeAllNow
     strategy.close_all(comment=closeReason)
     for k = 0 to MAX_LINES - 1
         array.set(lotSide, k, 0)
@@ -666,7 +655,7 @@ else
         else
             strategy.exit("X" + str.tostring(k), "G" + str.tostring(k), limit=array.get(lotTarget, k), comment="网格止盈")
     // 挂开仓单
-    bool canPlace = tradingWindow and barstate.isconfirmed and gateDir != 0 and centerOK and inRange and not blocked and not paused and strategy.equity > 0
+    bool canPlace = barstate.isconfirmed and gateDir != 0 and centerOK and inRange and not blocked and not paused and strategy.equity > 0
     for k = 0 to MAX_LINES - 1
         string id = "G" + str.tostring(k)
         bool place = false
@@ -705,7 +694,7 @@ plot(gateDir, "方向:多1空-1观望0", display=display.data_window)
 bgcolor(gateDir == 1 and centerOK and inRange and not blocked ? color.new(color.green, 94) : gateDir == -1 and centerOK and inRange and not blocked ? color.new(color.red, 94) : blocked ? color.new(color.gray, 92) : na)
 f_kind_text(int k) =>
     k == 2 ? "二买" : k == 3 ? "三买" : k == -2 ? "二卖" : k == -3 ? "三卖" : "无"
-var table panel = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 15))
+var table panel = table.new(position.top_right, 2, 11, bgcolor=color.new(color.black, 15))
 if barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfirmed)
     table.cell(panel, 0, 0, "方向（日线/周线缠论）", text_color=color.white)
     table.cell(panel, 1, 0, (gateDir == 1 ? "做多网格" : gateDir == -1 ? "做空网格" : "观望") + " | 日线" + (nz(d1Pos) == 1 ? "中枢上" : nz(d1Pos) == -1 ? "中枢下" : "中枢内") + " " + f_kind_text(nz(d1Kind)) + " | 周线" + (nz(w1Pos) == 1 ? "中枢上" : nz(w1Pos) == -1 ? "中枢下" : "中枢内"), text_color=gateDir == 1 ? color.lime : gateDir == -1 ? color.red : color.orange)
@@ -714,7 +703,7 @@ if barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfir
     table.cell(panel, 0, 2, "格数/步长", text_color=color.white)
     table.cell(panel, 1, 2, haveCenter ? str.tostring(n) + " 格 / " + str.tostring(width, "#.##") + (centerOK ? "" : " 不足最少格数") : "—", text_color=centerOK ? color.lime : color.orange)
     table.cell(panel, 0, 3, "状态", text_color=color.white)
-    table.cell(panel, 1, 3, not tradingEnabled ? "交易未启用" : not tradingWindow ? "等待交易开始时间" : paused ? "日内风险暂停" : blocked ? "中枢已破坏,封锁中" : not inRange ? "价格在中枢外,等待回到区间" : gateDir == 0 ? "方向观望" : centerOK ? "网格运行中" : "中枢太小", text_color=color.white)
+    table.cell(panel, 1, 3, paused ? "日内风险暂停" : blocked ? "中枢已破坏,封锁中" : not inRange ? "价格在中枢外,等待回到区间" : gateDir == 0 ? "方向观望" : centerOK ? "网格运行中" : "中枢太小", text_color=color.white)
     table.cell(panel, 0, 4, "持仓格/挂单上限", text_color=color.white)
     table.cell(panel, 1, 4, str.tostring(strategy.opentrades) + " / " + str.tostring(n), text_color=color.white)
     table.cell(panel, 0, 5, "网格止盈/中枢破坏/方向反转", text_color=color.white)
@@ -726,9 +715,6 @@ if barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfir
     table.cell(panel, 0, 8, "日初权益回撤", text_color=color.white)
     table.cell(panel, 1, 8, str.tostring(dayDD, "#.##") + "%", text_color=color.white)
     table.cell(panel, 0, 9, "研究版本", text_color=color.white)
-    table.cell(panel, 1, 9, "v1.1仓位修复：未编译验证", text_color=color.orange)
+    table.cell(panel, 1, 9, "chan-grid-v1：2~3个中枢样本，未验证", text_color=color.orange)
     table.cell(panel, 0, 10, "初始/当前模拟权益", text_color=color.white)
     table.cell(panel, 1, 10, str.tostring(strategy.initial_capital, "#.##") + " / " + str.tostring(strategy.equity, "#.##"), text_color=color.white)
-
-    table.cell(panel, 0, 11, "交易起点（UTC）", text_color=color.white)
-    table.cell(panel, 1, 11, str.format_time(tradeStart, "yyyy-MM-dd HH:mm", "UTC"), text_color=color.white)
