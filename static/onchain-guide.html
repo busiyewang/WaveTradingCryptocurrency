@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链上资金页 · 使用手册</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0b0e11; color: #c9d1d9;
+    font: 14px/1.75 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 24px; color: #e6edf3; margin-bottom: 4px; }
+  h2 { font-size: 18px; color: #e6edf3; margin: 34px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #2a2e35; }
+  h3 { font-size: 15px; color: #e6edf3; margin: 20px 0 6px; }
+  p, li { margin: 6px 0; }
+  ul, ol { padding-left: 22px; }
+  a { color: #7db8ff; }
+  code { background: #171b20; border: 1px solid #2a2e35; border-radius: 4px; padding: 0 5px; font-size: 12.5px; }
+  pre { background: #12161b; border: 1px solid #2a2e35; border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; }
+  .muted { color: #8b949e; }
+  .up { color: #2ebd85; } .down { color: #f6465d; } .warn { color: #d29922; } .blue { color: #7db8ff; }
+  .box { background: #12161b; border: 1px solid #2a2e35; border-left: 4px solid #4c8dff; border-radius: 6px; padding: 10px 14px; margin: 12px 0; }
+  .box.warn { border-left-color: #d29922; }
+  .box.good { border-left-color: #2ebd85; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+  th { text-align: left; color: #8b949e; font-weight: 400; padding: 6px 8px; border-bottom: 1px solid #2a2e35; white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid #1e2329; vertical-align: top; }
+  .tablewrap { overflow-x: auto; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 12px; color: #fff; white-space: nowrap; }
+  nav.toc { background: #12161b; border: 1px solid #2a2e35; border-radius: 6px; padding: 10px 16px; margin: 16px 0; }
+  nav.toc ol { columns: 2; column-gap: 30px; }
+  @media (max-width: 600px) { nav.toc ol { columns: 1; } .wrap { padding: 20px 16px 48px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⛓ 链上资金页 · 使用手册</h1>
+  <p class="muted">入口:主页工具栏「⛓ 链上资金」,或直接打开 <code>http://127.0.0.1:8420/onchain</code>。本页只读,不改变缠论决策。</p>
+
+  <nav class="toc"><ol>
+    <li><a href="#what">这一页解决什么问题</a></li>
+    <li><a href="#quick">30 秒上手</a></li>
+    <li><a href="#layout">界面与标签页</a></li>
+    <li><a href="#score">支持度分数怎么读</a></li>
+    <li><a href="#metrics">11 项指标逐条说明</a></li>
+    <li><a href="#combo">和缠论信号怎么配合</a></li>
+    <li><a href="#data">数据来源、口径与更新频率</a></li>
+    <li><a href="#status">「不可用」「已过期」是什么意思</a></li>
+    <li><a href="#config">配置 Glassnode key</a></li>
+    <li><a href="#faq">常见问题</a></li>
+    <li><a href="#chart">主图:成本线与资金副图</a></li>
+    <li><a href="#filter">链上过滤仓位(实验)与回测结论</a></li>
+  </ol></nav>
+
+  <h2 id="what">1. 这一页解决什么问题</h2>
+  <p>缠论只看 K 线。它告诉你<b>在哪里、往哪个方向</b>做,但看不到 K 线以外的东西:多头是否已经很拥挤、币是不是在大量搬进交易所准备卖、周期估值贵不贵。</p>
+  <p>这一页把这些"K 线以外"的信息合成一个 <b>0–100 的支持度</b>,回答一个问题:<b>当前的大环境,支不支持缠论给出的这笔交易?</b></p>
+  <div class="box">
+    <b>核心原则:链上只做过滤,不产生信号。</b><br>
+    做多 / 做空 / 观望 仍然 100% 由缠论决定。链上分数只用于风控:环境逆风时降低仓位,顺风时<b>不加仓</b>(只降不升)。
+  </div>
+
+  <h2 id="quick">2. 30 秒上手</h2>
+  <ol>
+    <li>在顶部选币种(和主页共用,主页切到 BTC,这里打开也是 BTC)。</li>
+    <li>选「决策周期」(默认 4H),页面会读取该周期的缠论决策。</li>
+    <li>看「总览」第一行三张卡片:
+      <ul>
+        <li><b>缠论决策</b>:可考虑做多 / 做空 / 观望,下面一句话就是链上给出的仓位建议。</li>
+        <li><b>对做多的支持度</b> / <b>对做空的支持度</b>:蓝框高亮的是当前决策方向那一张。</li>
+      </ul>
+    </li>
+    <li>想知道"为什么是这个分数",看下面的表格,每行一个指标,<span class="up">利多</span> / <span class="down">利空</span> / 中性 一目了然。</li>
+  </ol>
+
+  <h2 id="layout">3. 界面与标签页</h2>
+  <div class="tablewrap"><table>
+    <tr><th>位置</th><th>作用</th></tr>
+    <tr><td>工具栏 · 币种按钮 / 输入框</td><td>切换币种,输入 <code>SOL</code> 会自动补成 <code>SOL-USDT-SWAP</code>。</td></tr>
+    <tr><td>工具栏 · 决策周期</td><td>读取哪个周期的缠论决策来高亮方向(15m / 1H / 4H / 1D)。链上数据本身不随周期变化。</td></tr>
+    <tr><td>工具栏 · ⟳ 刷新 / 每分钟自动刷新</td><td>刷新会重拉 K 线决策;链上数据有自己的缓存节奏(见第 7 节),频繁点刷新不会多耗 Glassnode 额度。</td></tr>
+    <tr><td>标签「总览」</td><td>决策 + 两个支持度 + 全部指标汇总表(含来源、口径、数据时间)。</td></tr>
+    <tr><td>标签「拥挤度」</td><td>资金费率、持仓/价格、多空账户比、主动买卖比、爆仓量 —— 日内最有用的一组。</td></tr>
+    <tr><td>标签「资金流」</td><td>交易所净流入、USDT 交易所余额。</td></tr>
+    <tr><td>标签「周期」</td><td>STH 成本线、MVRV Z-Score、NUPL、SOPR —— 大背景,变化很慢。</td></tr>
+  </table></div>
+  <p>每个分组页是卡片形式:数值、判断、一句话解释、走势小图、来源、口径、数据时间、权重。标签名后的 <code>9/11</code> 表示该组有几项拿到了数据。</p>
+
+  <h2 id="score">4. 支持度分数怎么读</h2>
+  <p>每个指标先换算成"利多度"(0–100,50 = 中性),再按权重加权平均:</p>
+  <ul>
+    <li><b>对做多的支持度</b> = 加权利多度;<b>对做空的支持度</b> = 100 − 对做多。两者口径一致,都是<b>越高越好</b>。</li>
+    <li>标注「已过期」的数据权重减半;「不可用」的不参与计算。卡片下方的「覆盖 x/11」告诉你分数基于几项指标。</li>
+  </ul>
+  <div class="tablewrap"><table>
+    <tr><th>分数</th><th>档位</th><th>仓位建议(打开「链上过滤(实验)」才作用到决策,默认仅提示)</th></tr>
+    <tr><td>≥ 60</td><td><span class="tag" style="background:#2ebd85">顺风</span></td><td>按缠论计划正常仓位,<b>不加仓</b></td></tr>
+    <tr><td>40 – 59</td><td><span class="tag" style="background:#4c8dff">中性</span></td><td>按缠论计划正常仓位</td></tr>
+    <tr><td>20 – 39</td><td><span class="tag" style="background:#d29922">逆风</span></td><td>仓位降一档(如 70% → 50%)</td></tr>
+    <tr><td>&lt; 20</td><td><span class="tag" style="background:#f6465d">强逆风</span></td><td>降两档,或暂停该方向新开仓,只管理已有仓位</td></tr>
+  </table></div>
+  <div class="box warn">覆盖项太少(比如只有 3–4 项)时分数波动大,参考价值低。Glassnode 刚开始加载时常见这种情况,等一两分钟补全再看。</div>
+
+  <h2 id="metrics">5. 11 项指标逐条说明</h2>
+  <p class="muted">"利多度"列给出的是换算规则,阈值写在 <code>onchain.py</code> 的 <code>score_*</code> 函数里,权重在 <code>WEIGHTS</code>。</p>
+
+  <h3>拥挤度(日内)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>指标</th><th>怎么看</th><th>利多度规则</th><th>权重</th></tr>
+    <tr><td><b>资金费率</b><br><span class="muted">OKX 当前 + 全市场日均</span></td>
+      <td>正值 = 多头付钱给空头。基准约 0.01%/8h。<b>逆向指标</b>:费率越高越说明多头拥挤,一旦下跌容易多杀多。</td>
+      <td>≤ −0.01%:75 · ≤ 0.005%:60 · ≤ 0.015%:50 · ≤ 0.03%:35 · 更高:20</td><td>1.0</td></tr>
+    <tr><td><b>持仓 / 价格(24h)</b><br><span class="muted">OKX</span></td>
+      <td>看涨跌背后有没有新资金:<br>价↑仓↑ 新多进场(健康上涨)<br>价↑仓↓ 空头平仓推动(突破可信度低)<br>价↓仓↑ 新空进场(健康下跌)<br>价↓仓↓ 多头去杠杆(抛压在释放)</td>
+      <td>65 / 45 / 35 / 55;价格变化 &lt;0.5% 或持仓变化 &lt;1% 记 50。同时显示 4h 变化供参考</td><td>1.0</td></tr>
+    <tr><td><b>多空账户比</b><br><span class="muted">OKX</span></td>
+      <td>做多账户数 / 做空账户数,反映散户情绪。<b>逆向指标</b>。不同币的常态差异很大,所以用"当前值在近 100 小时的分位"判断。</td>
+      <td>50 − (分位 − 50%) × 0.6,限制在 20–80</td><td>0.7</td></tr>
+    <tr><td><b>主动买/卖(1h)</b><br><span class="muted">OKX</span></td>
+      <td>近 1 小时主动吃单买入量 / 卖出量。&gt;1 买方更急。</td>
+      <td>50 + (比值 − 1) × 50,限制在 30–70</td><td>0.5</td></tr>
+    <tr><td><b>爆仓量(日)</b><br><span class="muted">Glassnode 全市场</span></td>
+      <td>多头集中爆仓 = 多头被清洗,常出现在阶段底部;空头集中爆仓 = 轧空,之后容易回落。</td>
+      <td>多头爆仓 ≥ 近期日均 2 倍且大于空头:65;空头同理:35;其余 50</td><td>0.6</td></tr>
+  </table></div>
+
+  <h3>资金流(日线)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>指标</th><th>怎么看</th><th>利多度规则</th><th>权重</th></tr>
+    <tr><td><b>交易所净流入(3日)</b><br><span class="muted">Glassnode 全市场</span></td>
+      <td>负数 = 净流出,币从交易所提走(囤币),利多;正数 = 净流入,准备卖,利空。</td>
+      <td>按近 3 日合计相对历史日波动的倍数 z:50 − 15 × z,限制在 10–90</td><td>1.0</td></tr>
+    <tr><td><b>USDT 交易所余额</b><br><span class="muted">Glassnode 全市场</span></td>
+      <td>交易所里的稳定币是潜在买盘。7 日增加 = 弹药在变多。所有币共用这一项。</td>
+      <td>50 + 7日变化% × 10,限制在 20–80</td><td>0.5</td></tr>
+  </table></div>
+
+  <h3>周期(日线,变化慢)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>指标</th><th>怎么看</th><th>利多度规则</th><th>权重</th></tr>
+    <tr><td><b>STH 成本线</b><br><span class="muted">Glassnode,仅 BTC</span></td>
+      <td>持币 &lt;155 天的短期持有者平均成本。牛市回调常在这里获得支撑,熊市反弹常在这里受阻。ETH 等无此数据时用"全体成本(实现价格)"代替,卡片会注明。</td>
+      <td>现价在 ±2% 内:50(测试中) · 上方:65 · 下方:35</td><td>0.8</td></tr>
+    <tr><td><b>MVRV Z-Score</b></td>
+      <td>市值相对全体成本的偏离程度,衡量大周期贵贱。</td>
+      <td>≤0:80 · ≤2:60 · ≤4:50 · ≤6:30 · 更高:15</td><td>0.5</td></tr>
+    <tr><td><b>NUPL</b></td>
+      <td>全网未实现盈亏比例。&lt;0 投降区,&gt;0.75 极度贪婪。</td>
+      <td>&lt;0:80 · &lt;0.25:65 · &lt;0.5:50 · &lt;0.75:35 · 更高:15</td><td>0.4</td></tr>
+    <tr><td><b>SOPR(7日均)</b></td>
+      <td>链上卖出的币整体是盈利(&gt;1)还是亏损(&lt;1)。走势图里的虚线是 1。</td>
+      <td>&gt;1 且走高:60 · &gt;1 回落:50 · &lt;1 修复:45 · &lt;1 恶化:40</td><td>0.4</td></tr>
+  </table></div>
+
+  <h2 id="combo">6. 和缠论信号怎么配合</h2>
+  <div class="box good"><b>B1(趋势底背驰)+ 多头爆仓高峰 + 资金费率转负</b><br>
+    空头拥挤、多头已出清,和背驰结构相互印证。支持度通常在中性偏上,可按缠论计划执行。</div>
+  <div class="box warn"><b>B3(中枢上方回踩不破)+ 价↑仓↓</b><br>
+    突破主要靠空头回补,没有新多进场,三买的延续性存疑。建议等持仓开始跟涨再进,或按计划降一档。</div>
+  <div class="box warn"><b>做多信号 + 费率过热 + 交易所大额净流入</b><br>
+    多头拥挤叠加潜在卖压,典型的逆风。页面会提示降档,严格执行止损。</div>
+  <div class="box"><b>缠论观望</b><br>
+    链上分数只作环境参考,不因为"链上很顺风"就去主观开仓。</div>
+  <p>周期类指标(MVRV、NUPL)一个月都未必换档,不要用它们做 15m / 1H 的入场时机,它们只告诉你大背景。</p>
+
+  <h2 id="data">7. 数据来源、口径与更新频率</h2>
+  <div class="tablewrap"><table>
+    <tr><th>来源</th><th>口径</th><th>粒度</th><th>本页刷新</th><th>说明</th></tr>
+    <tr><td>OKX 公开接口</td><td><b>OKX 单所</b></td><td>5 分钟 / 1 小时</td><td>每 5 分钟</td><td>无需 key;实测数据连续无断点,延迟约 3–8 分钟</td></tr>
+    <tr><td>Glassnode</td><td><b>全市场 / 链上</b></td><td>仅日线</td><td>每 6 小时复查</td><td>当前 key 为 advanced 档:只开放 24h 粒度、只给最近约两周、限流严</td></tr>
+  </table></div>
+  <ul>
+    <li>Glassnode 日线以 UTC 0 点为界,最新一根通常要隔天甚至 1.5 天才发布。"数据时间"列显示的就是这根日线的时间。</li>
+    <li>Glassnode 请求在后台排队,两次请求间隔约 7 秒;第一次打开某个币需要 1–2 分钟才能补全,期间页面每 15 秒自动补拉,顶部会提示"Glassnode 后台拉取中"。</li>
+    <li>套餐只给近两周历史。服务运行期间每次拉取会和已有数据合并,运行越久走势图越长;<b>重启服务后会清空</b>,重新从两周开始。</li>
+    <li>"来源"和"口径"两列方便排查:资金费率同时用了 OKX 当前值和 Glassnode 全市场日均,二者取平均参与评分。</li>
+  </ul>
+
+  <h2 id="status">8. 「不可用」「已过期」是什么意思</h2>
+  <div class="tablewrap"><table>
+    <tr><th>显示</th><th>原因</th><th>怎么办</th></tr>
+    <tr><td>加载中(Glassnode 限流,逐项拉取)</td><td>后台还没轮到这一项</td><td>等 1–2 分钟,自动补全</td></tr>
+    <tr><td>Glassnode 限流(429),稍后自动重试</td><td>请求太频繁</td><td>15 分钟后自动重试,无需操作</td></tr>
+    <tr><td>Glassnode 不支持 XXX</td><td>该币没有这项链上数据(山寨币常见)</td><td>正常现象,只看 OKX 的拥挤度指标</td></tr>
+    <tr><td>套餐不支持该指标</td><td>需要更高档位(如 STH-SOPR 需要 professional)</td><td>已从默认指标里排除,出现说明套餐变了</td></tr>
+    <tr><td>未配置 GLASSNODE_API_KEY</td><td>没读到 key</td><td>见第 9 节</td></tr>
+    <tr><td>OKX 网络错误 / 接口错误</td><td>代理或 OKX 临时故障</td><td>检查代理;下次刷新自动重试</td></tr>
+    <tr><td><span class="warn">已过期</span></td><td>OKX 超过 15 分钟未更新,或 Glassnode 最新日线早于 4 天前,或最近一次刷新失败</td><td>保留上一次数据继续显示,评分权重减半</td></tr>
+  </table></div>
+  <p>链上页面任何错误都<b>不会影响</b>主页的缠论分析和交易决策。</p>
+
+  <h2 id="config">9. 配置 Glassnode key</h2>
+  <p>程序按顺序读取:① 环境变量 <code>GLASSNODE_API_KEY</code>;② 项目根目录 <code>.env</code> 文件里的这一行:</p>
+  <pre>GLASSNODE_API_KEY=你的key</pre>
+  <p><code>.env</code> 已在 <code>.gitignore</code> 中,不会被提交。改 key 后需要重启服务:</p>
+  <pre>kill $(lsof -ti:8420 -sTCP:LISTEN); cd /Users/wangye/learnCode/WaveTradingCryptocurrency && .venv/bin/python server.py</pre>
+  <p class="muted">注意:请求头用官方的 <code>X-Api-Key</code>,服务端访问 Glassnode / OKX 都走本机代理(不要清代理环境变量)。</p>
+
+  <h2 id="faq">10. 常见问题</h2>
+  <h3>为什么第一次打开大部分指标是"加载中"?</h3>
+  <p>Glassnode 限流很严,后台按约 7 秒一项排队拉取,每个币大约 10 项,首次需要 1–2 分钟。OKX 的 4 项会立刻显示。</p>
+  <h3>为什么 ETH 没有 STH 成本线?</h3>
+  <p>Glassnode 的 STH 实现价格只提供 BTC。ETH 用全体实现价格代替,含义是"全网平均持币成本",支撑/压力意义更偏长期。</p>
+  <h3>分数和主页的仓位建议不一致?</h3>
+  <p>主页决策默认不使用链上分数;只有勾选「链上过滤(实验)」才会降档,见第 12 节。</p>
+  <h3>OKX 的资金费率/多空比能代表全市场吗?</h3>
+  <p>不能完全代表,所以"口径"列写明了"OKX 单所"。全市场的资金费率和爆仓来自 Glassnode(日线)。</p>
+  <h3>可以调权重或阈值吗?</h3>
+  <p>可以,在 <code>onchain.py</code> 顶部的 <code>WEIGHTS</code> 和各 <code>score_*</code> 函数里改,改完重启服务。建议先回测再改。</p>
+
+  <h2 id="chart">11. 主图:成本线与资金副图</h2>
+  <p>在主页工具栏右侧有两个开关(状态会记住,下次打开保持):</p>
+  <h3>☐ 成本线</h3>
+  <ul>
+    <li>主图上一条淡紫色虚线:BTC 为 <b>STH 成本线</b>(短期持有者平均成本),其他币为<b>全体成本(实现价格)</b>。</li>
+    <li>标签写明价格、<b>现价高于/低于成本多少 %</b>、数据日期(UTC 日线)。</li>
+    <li>成本线不在当前价格视野内时,不画线,只在主图上/下边缘贴标签「↓ … (在视野下方)」提示方向。</li>
+    <li>怎么用:和中枢 ZG/ZD 一起看。回调到成本线附近出现 B2/B3 → 结构位与成本支撑重合,可信度更高;
+      跌破成本线后反抽到线下受阻 → 关注 S2/S3。成本线是日线数据,每天只变一次。</li>
+  </ul>
+  <h3>☐ 资金副图(OKX 单所)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>图形</th><th>含义</th></tr>
+    <tr><td>柱子高度</td><td>这一根 K 线期间的<b>持仓量变化 %</b>(币本位,不受价格涨跌影响)</td></tr>
+    <tr><td>实心柱 / 空心柱</td><td>实心 = 增仓(有新仓位开出);空心 = 减仓(有人平仓)</td></tr>
+    <tr><td>绿色 / 红色</td><td>这一根 K 线收涨 / 收跌</td></tr>
+    <tr><td>黄线</td><td>资金费率,单位<b>万分之</b>(1 = 0.01%,即基准费率)。每 8 小时结算一次,所以是台阶状;当前未结算周期显示预测费率</td></tr>
+    <tr><td>红虚线</td><td>过热线 = 3(0.03%):黄线越过它说明多头很拥挤</td></tr>
+  </table></div>
+  <p>鼠标悬停时副图标题会直接写出解读:</p>
+  <div class="tablewrap"><table>
+    <tr><th>柱子</th><th>解读</th><th>对缠论信号</th></tr>
+    <tr><td><span class="up">绿色实心</span></td><td>价↑仓↑ 新多进场</td><td>向上离开中枢 / B3 有资金推动,可信</td></tr>
+    <tr><td><span class="up">绿色空心</span></td><td>价↑仓↓ 空头回补</td><td>上涨靠平空,B3 突破存疑,等增仓确认</td></tr>
+    <tr><td><span class="down">红色实心</span></td><td>价↓仓↑ 新空进场</td><td>下跌有资金推动,底背驰别急着抄</td></tr>
+    <tr><td><span class="down">红色空心</span></td><td>价↓仓↓ 多头平仓</td><td>抛压在释放,配合底背驰 + 费率回落更可信</td></tr>
+  </table></div>
+  <ul>
+    <li>首次打开某币某周期需要向 OKX 分页回补持仓历史,<b>约 20 秒</b>,工具栏会提示"资金副图加载中";之后每 5 分钟只刷新最新一页,几乎瞬时。</li>
+    <li>资金费率历史 OKX 只保留约 3 个月,更早的 K 线没有黄线,属正常。</li>
+    <li><b>1m 周期</b>:OKX 没有 1 分钟持仓数据,用 5 分钟快照,所以每 5 根 K 线才出现一根柱子;1W 周期用日线快照。</li>
+    <li>最新一根未收盘 K 线的持仓变化通常为 0(下一次快照还没出来)。</li>
+  </ul>
+
+  <h2 id="filter">12. 链上过滤仓位(实验)与回测结论</h2>
+  <p>主页工具栏「链上过滤(实验)」开关,<b>默认关闭</b>。打开后缠论决策的仓位按支持度只降不升:</p>
+  <ul>
+    <li>≥ 40:不变(≥ 60 顺风也<b>不加仓</b>);20–39:降一档;&lt; 20:降两档。档位 100 → 70 → 50 → 30 → 观望,降到 0 即"暂停该方向新开仓"。</li>
+    <li>有效指标不足一半(如 Glassnode 刚开始加载)时不调整;该币不支持的指标不计入分母。</li>
+    <li>决策横幅会显示"链上对做多/做空支持度"和"(链上降档,原 70%)"。链上数据出错时决策原样返回。</li>
+  </ul>
+  <div class="box warn"><b>回测结论:提升不明显,因此默认关闭。</b><br>
+    2026-08-07 ~ 10-02,6 个币 × 15m/1H/4H,共 368 笔。过滤只影响 7 笔(跳过的 3 笔无过滤时确实全亏),
+    整体胜率 32.9% → 33.2%、平均收益 −4.11% → −4.10%,差异可以忽略;支持度分段与胜负也不单调。
+    回测只能用 OKX 四项(Glassnode 只有两周历史),线上分数还包含链上指标,口径不完全相同。
+    详见 <code>research/onchain_filter/README.md</code>。</div>
+  <p>建议:把链上页和资金副图当作<b>环境参考</b>,人工判断时结合使用;不要依赖开关自动降仓。</p>
+
+  <h2>后续计划</h2>
+  <ol>
+    <li><b>✓ 第 1 步</b>:只读链上页面(本页)。</li>
+    <li><b>✓ 第 2 步</b>:STH 成本线画到主图;主图加资金副图(持仓变化 + 资金费率),见第 11 节。</li>
+    <li><b>✓ 第 3 步</b>:支持度接入决策(实验开关,默认关闭)。回测提升不明显,按约定退回只展示,见第 12 节。</li>
+  </ol>
+  <p class="muted" style="margin-top:30px">仅供参考,非投资建议。</p>
+</div>
+</body>
+</html>

@@ -97,6 +97,7 @@
     <div class="group" id="periods"></div>
     <span class="sep"></span>
     <a class="btn" href="/multi" title="大级别定方向,小级别找确认(区间套)">🔭 多级别</a>
+    <a class="btn" href="/onchain" title="Glassnode 链上 + OKX 资金面环境(只读,不参与决策)">⛓ 链上资金</a>
     <a class="btn" href="/static/quant.html" title="量化交易界面原型，使用样例数据">量化预览</a>
     <span class="sep"></span>
     <button id="refreshBtn" class="primary">⟳ 刷新</button>
@@ -112,6 +113,11 @@
       <label class="chk"><input type="checkbox" id="ckDl" checked> 指标背离</label>
       <label class="chk"><input type="checkbox" id="ckBsp" checked> 买卖点</label>
       <label class="chk"><input type="checkbox" id="ckTri" checked> 收敛</label>
+      <span class="sep"></span>
+      <label class="chk" title="Glassnode 短期持有者成本线(BTC);其他币为全体实现价格。日线数据"><input type="checkbox" id="ckCost"> 成本线</label>
+      <label class="chk" title="OKX 单所:柱=持仓变化%(实心增仓/空心减仓,绿收涨/红收跌);黄线=资金费率(万分之),红虚线=过热线万3"><input type="checkbox" id="ckFund"> 资金副图</label>
+      <label class="chk" title="实验功能,默认关闭。链上支持度只降不升:20-39 降一档、<20 降两档(降到0即观望);≥40 不变,≥60 也不加仓。2026-10 回测(55天/368笔)提升不明显,见 research/onchain_filter/README.md"><input type="checkbox" id="ckOcFilter"> 链上过滤(实验)</label>
+      <span id="extraStatus" class="muted"></span>
     </div>
   </div>
   <div id="chart"></div>

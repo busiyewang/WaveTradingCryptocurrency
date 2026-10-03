@@ -15,6 +15,7 @@ import chan
 import decision
 import indicators
 import multilevel
+import onchain
 import patterns
 
 OKX_BASE = "https://www.okx.com"
@@ -117,6 +118,9 @@ def api_kline():
         hi_bar = decision.LEVEL_UP.get(bar, bar)
         hi_data = data if hi_bar == bar else _get_data(inst, hi_bar, force)
         dec = decision.decide(data, hi_data, bar, hi_bar)
+        if request.args.get("onchain") == "1":
+            # 链上过滤(只降不升);内部异常已兜底,不会影响缠论决策本身
+            dec = onchain.apply_to_decision(dec, inst, data["candles"][-1]["c"])
     except requests.RequestException as e:
         return jsonify({"code": 1, "msg": f"网络错误: {e}"}), 502
     except RuntimeError as e:
@@ -160,6 +164,44 @@ def api_multi():
 @app.get("/multi")
 def multi_page():
     return send_from_directory("static", "multi.html")
+
+
+@app.get("/api/onchain")
+def api_onchain():
+    """链上·资金环境(只读,不参与缠论决策)。Glassnode 后台排队拉取,OKX 5 分钟缓存。"""
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    # 现价优先用已缓存的K线实时价,不为此额外请求K线
+    last = None
+    for (i, _), c in _cache.items():
+        if i == inst:
+            last = c["data"]["candles"][-1]["c"]
+            break
+    try:
+        return jsonify(onchain.build(inst, last))
+    except Exception as e:  # 链上面板任何异常都不能影响主流程
+        return jsonify({"code": 1, "msg": f"链上数据暂不可用: {e}"}), 502
+
+
+@app.get("/api/fundflow")
+def api_fundflow():
+    """资金副图:OKX 持仓快照 + 资金费率结算历史(单所口径),前端按K线对齐。"""
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    bar = request.args.get("bar", "4H")
+    if bar not in VALID_BARS:
+        return jsonify({"code": 1, "msg": f"不支持的周期: {bar}"}), 400
+    try:
+        since = int(request.args.get("since", "0"))
+    except ValueError:
+        since = 0
+    try:
+        return jsonify(onchain.fundflow(inst, bar, since))
+    except Exception as e:  # 副图失败不影响主流程
+        return jsonify({"code": 1, "msg": f"资金数据暂不可用: {e}"}), 502
+
+
+@app.get("/onchain")
+def onchain_page():
+    return send_from_directory("static", "onchain.html")
 
 
 @app.get("/api/instruments")

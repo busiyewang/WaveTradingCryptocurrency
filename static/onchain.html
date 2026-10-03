@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>链上 · 资金环境</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0b0e11; color: #c9d1d9;
+    font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  #toolbar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid #1e2329; flex: none;
+  }
+  .group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .sep { width: 1px; height: 20px; background: #2a2e35; margin: 0 4px; }
+  button, select, input[type=text], a.btn {
+    background: #171b20; color: #c9d1d9; border: 1px solid #2a2e35;
+    border-radius: 4px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+    outline: none; text-decoration: none; display: inline-block;
+  }
+  a.btn:hover, button:hover { border-color: #4c8dff; }
+  input[type=text] { width: 150px; cursor: text; }
+  button.active { background: #1d3a5f; border-color: #4c8dff; color: #7db8ff; }
+  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button.primary:disabled { opacity: .5; cursor: wait; }
+  label.chk { display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none; color: #8b949e; }
+  label.chk input { accent-color: #1f6feb; }
+  #title { font-weight: 700; font-size: 15px; color: #e6edf3; }
+  #status { color: #8b949e; font-size: 12px; }
+  #status.err { color: #f6465d; }
+
+  #tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid #1e2329; flex: none; overflow-x: auto; }
+  #tabs button {
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 9px 14px; color: #8b949e; white-space: nowrap;
+  }
+  #tabs button:hover { color: #e6edf3; }
+  #tabs button.on { color: #e6edf3; border-bottom-color: #1f6feb; font-weight: 600; }
+  #tabs .cnt { font-size: 11px; color: #6e7681; margin-left: 4px; }
+
+  main { flex: 1; overflow-y: auto; padding: 14px 16px 24px; }
+  .muted { color: #6e7681; font-size: 12px; }
+  .up { color: #2ebd85; } .down { color: #f6465d; } .flat { color: #8b949e; } .warn { color: #d29922; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; color: #fff; white-space: nowrap; }
+
+  .hero { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .hcard { background: #12161b; border: 1px solid #2a2e35; border-radius: 8px; padding: 12px 14px; flex: 1; min-width: 240px; }
+  .hcard .lbl { color: #8b949e; font-size: 12px; }
+  .hcard .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .hcard .lv { font-size: 14px; font-weight: 600; margin-left: 6px; }
+  .bar { height: 6px; background: #2a2e35; border-radius: 3px; margin: 8px 0 4px; overflow: hidden; position: relative; }
+  .bar > div { height: 100%; border-radius: 3px; }
+  .bar .tick { position: absolute; top: 0; width: 1px; height: 100%; background: #0b0e11; }
+  .hcard.focus { border-color: #4c8dff; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: #8b949e; font-weight: 400; padding: 6px 8px; border-bottom: 1px solid #2a2e35; white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid #171b20; vertical-align: middle; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.na td { color: #6e7681; }
+  .tablewrap { overflow-x: auto; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .card { background: #12161b; border: 1px solid #2a2e35; border-radius: 8px; padding: 12px 14px; }
+  .card h4 { font-size: 14px; color: #e6edf3; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card .val { font-size: 15px; font-variant-numeric: tabular-nums; margin: 4px 0 2px; color: #e6edf3; }
+  .card .note { margin: 6px 0; }
+  .card .meta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .card svg { width: 100%; height: 70px; display: block; margin-top: 6px; }
+  .card.na { opacity: .65; }
+  .sec-note { margin: -4px 0 12px; max-width: 900px; }
+  @media (max-width: 600px) { main { padding: 12px; } .cards { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <a class="btn" href="/">← 单级别</a>
+    <span id="title">链上 · 资金</span>
+    <span class="sep"></span>
+    <div class="group" id="coins"></div>
+    <input type="text" id="instInput" placeholder="如 SOL 或 SOL-USDT-SWAP">
+    <button id="goBtn">切换</button>
+    <span class="sep"></span>
+    <label class="chk" title="读取该周期的缠论决策方向,高亮对应支持度">决策周期
+      <select id="barSel"><option>15m</option><option>1H</option><option selected>4H</option><option>1D</option></select>
+    </label>
+    <button id="refreshBtn" class="primary">⟳ 刷新</button>
+    <label class="chk"><input type="checkbox" id="ckAuto" checked> 每分钟自动刷新</label>
+    <span id="status"></span>
+    <span style="flex:1"></span>
+    <a class="btn" href="/static/onchain-guide.html" target="_blank">📖 使用手册</a>
+  </div>
+  <nav id="tabs"></nav>
+  <main id="main"><div class="muted">加载中…</div></main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const TABS = [
+    { key: 'all', name: '总览', hash: 'all' },
+    { key: '拥挤度', name: '拥挤度', hash: 'crowd', note: '日内多空拥挤程度。资金费率、多空比是逆向指标:一边越拥挤,反向风险越大;持仓/价格用来判断涨跌背后有没有新资金。OKX 数据为单所口径,每 5 分钟更新。' },
+    { key: '资金流', name: '资金流', hash: 'flow', note: '币和稳定币在交易所进出。币流入交易所=潜在卖压,流出=筹码沉淀;稳定币留在交易所=买盘弹药。Glassnode 日线、全市场口径。' },
+    { key: '周期', name: '周期', hash: 'cycle', note: '大周期估值背景,变化慢,只决定"环境偏贵还是偏便宜",不用于日内择时。STH 成本线是短期持有者的平均成本,常作牛市回调支撑/熊市反弹压力。' },
+  ];
+  const state = {
+    inst: localStorage.getItem('chan_inst') || 'ETH-USDT-SWAP',
+    bar: localStorage.getItem('oc_bar') || '4H',
+    tab: localStorage.getItem('oc_tab') || 'all',
+    data: null, decision: null, loading: false,
+  };
+  try { $('barSel').value = state.bar; } catch (e) { /* 忽略 */ }
+  // 网址锚点可直接打开某个标签:/onchain#crowd /#flow /#cycle
+  const fromHash = TABS.find((t) => `#${t.hash}` === location.hash);
+  if (fromHash) state.tab = fromHash.key;
+  if (!TABS.some((t) => t.key === state.tab)) state.tab = 'all';
+
+  const stateColor = { '利多': '#2ebd85', '利空': '#f6465d', '中性': '#6e7681' };
+  const lvColor = (s) => s == null ? '#6e7681' : s >= 60 ? '#2ebd85' : s >= 40 ? '#4c8dff' : s >= 20 ? '#d29922' : '#f6465d';
+  const fmtTime = (ms) => {
+    if (!ms) return '-';
+    const d = new Date(ms);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  // Glassnode 日线以 UTC 0 点为界,显示 UTC 日期,避免本地时区把它显示成前一天下午
+  const fmtDay = (ms) => {
+    if (!ms) return '-';
+    const d = new Date(ms);
+    return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} 日线`;
+  };
+  const fmtData = (r) => (r.source === 'Glassnode' ? fmtDay(r.data_time) : fmtTime(r.data_time));
+  const ago = (ms) => {
+    if (!ms) return '-';
+    const m = Math.round((Date.now() - ms) / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return `${m} 分钟前`;
+    if (m < 48 * 60) return `${Math.round(m / 60)} 小时前`;
+    return `${Math.round(m / 1440)} 天前`;
+  };
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* ---------- 币种 ---------- */
+  function renderCoins(list) {
+    $('coins').innerHTML = '';
+    list.forEach((inst) => {
+      const b = document.createElement('button');
+      b.textContent = inst.split('-')[0];
+      b.dataset.inst = inst;
+      b.onclick = () => { setInst(inst); };
+      $('coins').appendChild(b);
+    });
+    syncCoins();
+  }
+  function syncCoins() {
+    document.querySelectorAll('#coins button').forEach((b) => b.classList.toggle('active', b.dataset.inst === state.inst));
+  }
+  function setInst(inst) {
+    state.inst = inst;
+    localStorage.setItem('chan_inst', inst);
+    state.data = null; state.decision = null;
+    syncCoins(); render(); load(false);
+  }
+  $('goBtn').onclick = () => {
+    const v = $('instInput').value.trim().toUpperCase();
+    if (v) setInst(v.includes('-') ? v : `${v}-USDT-SWAP`);
+  };
+  $('instInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('goBtn').onclick(); });
+  $('barSel').onchange = () => { state.bar = $('barSel').value; localStorage.setItem('oc_bar', state.bar); state.decision = null; load(false); };
+  $('refreshBtn').onclick = () => load(true);
+
+  /* ---------- 加载 ---------- */
+  let pendingTimer = null;
+  async function load(force) {
+    if (state.loading) return;
+    state.loading = true;
+    $('refreshBtn').disabled = true;
+    setStatus('加载中…');
+    const inst = state.inst;
+    try {
+      const [oc, kl] = await Promise.all([
+        fetch(`/api/onchain?inst=${encodeURIComponent(inst)}`).then((r) => r.json()),
+        // 决策读取主页同一份缓存;失败不影响链上数据展示
+        fetch(`/api/kline?inst=${encodeURIComponent(inst)}&bar=${state.bar}&force=${force ? 1 : 0}`)
+          .then((r) => r.json()).catch(() => null),
+      ]);
+      if (inst !== state.inst) return;
+      if (oc.code !== 0) throw new Error(oc.msg || '未知错误');
+      state.data = oc;
+      state.decision = kl && kl.code === 0 ? kl.decision : null;
+      render();
+      setStatus(`更新于 ${new Date(oc.fetched_at).toLocaleTimeString()}${oc.gn_pending ? ' · Glassnode 后台拉取中…' : ''}`);
+      clearTimeout(pendingTimer);
+      // Glassnode 逐项限流拉取期间,每 15 秒补拉一次已到的数据
+      if (oc.gn_pending) pendingTimer = setTimeout(() => load(false), 15000);
+    } catch (e) {
+      setStatus(`加载失败: ${e.message}`, true);
+    } finally {
+      state.loading = false;
+      $('refreshBtn').disabled = false;
+    }
+  }
+  function setStatus(msg, err) { const el = $('status'); el.textContent = msg; el.className = err ? 'err' : ''; }
+
+  /* ---------- 标签 ---------- */
+  function renderTabs() {
+    const rows = (state.data && state.data.rows) || [];
+    $('tabs').innerHTML = TABS.map((t) => {
+      const rs = t.key === 'all' ? rows : rows.filter((r) => r.group === t.key);
+      const ok = rs.filter((r) => r.status === 'ok').length;
+      return `<button data-k="${t.key}" class="${state.tab === t.key ? 'on' : ''}">${t.name}<span class="cnt">${rows.length ? `${ok}/${rs.length}` : ''}</span></button>`;
+    }).join('');
+    document.querySelectorAll('#tabs button').forEach((b) => {
+      b.onclick = () => {
+        state.tab = b.dataset.k;
+        localStorage.setItem('oc_tab', state.tab);
+        history.replaceState(null, '', `#${TABS.find((t) => t.key === state.tab).hash}`);
+        render();
+      };
+    });
+  }
+
+  function render() {
+    renderTabs();
+    const d = state.data;
+    if (!d) { $('main').innerHTML = '<div class="muted">加载中…</div>'; return; }
+    $('main').innerHTML = state.tab === 'all' ? renderOverview(d) : renderGroup(d, state.tab);
+  }
+
+  /* ---------- 总览 ---------- */
+  function decisionSide() {
+    const dc = state.decision;
+    if (!dc) return null;
+    if (dc.action === 'long' || dc.action === 'short') return dc.action;
+    return null;
+  }
+  function scoreCard(label, score, level, focus, extra) {
+    const c = lvColor(score);
+    const ticks = [20, 40, 60].map((t) => `<span class="tick" style="left:${t}%"></span>`).join('');
+    return `<div class="hcard ${focus ? 'focus' : ''}">
+      <div class="lbl">${label}${focus ? ' · <span style="color:#7db8ff">当前决策方向</span>' : ''}</div>
+      <div><span class="big" style="color:${c}">${score == null ? '--' : score}</span><span class="muted">/100</span><span class="lv" style="color:${c}">${level || ''}</span></div>
+      <div class="bar"><div style="width:${score || 0}%;background:${c}"></div>${ticks}</div>
+      <div class="muted">${extra}</div>
+    </div>`;
+  }
+  function renderOverview(d) {
+    const s = d.score || {};
+    const side = decisionSide();
+    const dc = state.decision;
+    const nameMap = { long: '可考虑做多', short: '可考虑做空', wait: '观望' };
+    const colorMap = { long: '#2ebd85', short: '#f6465d', wait: '#8b949e' };
+    let decHtml;
+    if (dc) {
+      const c = colorMap[dc.action];
+      let verdict = '';
+      if (side) {
+        const sc = s[side];
+        const lv = s[`${side}_level`];
+        verdict = sc == null ? '链上数据不足,暂无法评估'
+          : sc >= 60 ? `链上${lv},按缠论计划执行,<b>不加仓</b>`
+          : sc >= 40 ? `链上${lv},按缠论计划执行`
+          : sc >= 20 ? `<span class="warn">链上${lv},建议仓位降一档(主页勾选「链上过滤」才自动生效)</span>`
+          : `<span class="down">链上${lv},建议降两档或暂停该方向新开仓(主页勾选「链上过滤」才自动生效)</span>`;
+      } else {
+        verdict = '缠论当前观望,链上分数仅作环境参考';
+      }
+      decHtml = `<div class="hcard" style="border-left:4px solid ${c}">
+        <div class="lbl">缠论决策(${esc(d.inst.split('-')[0])} · ${esc(state.bar)})</div>
+        <div style="font-size:20px;font-weight:700;color:${c};margin:2px 0">${nameMap[dc.action]}</div>
+        <div class="muted" style="margin-bottom:4px">${esc(dc.dir_desc || '')}</div>
+        <div>${verdict}</div>
+      </div>`;
+    } else {
+      decHtml = `<div class="hcard"><div class="lbl">缠论决策(${esc(state.bar)})</div><div class="muted" style="margin-top:6px">决策加载失败或未加载,链上数据仍可单独查看。</div></div>`;
+    }
+    const cov = `覆盖 ${s.coverage || '-'} 项指标 · 过期数据权重减半`;
+    let html = `<div class="hero">${decHtml}
+      ${scoreCard('对做多的支持度', s.long, s.long_level, side === 'long', cov)}
+      ${scoreCard('对做空的支持度', s.short, s.short_level, side === 'short', cov)}
+    </div>`;
+    html += `<div class="muted" style="margin-bottom:10px">档位:≥60 顺风 · 40-59 中性 · 20-39 逆风 · &lt;20 强逆风。链上只做过滤,不产生买卖信号,方向完全由缠论决定。
+      OKX 数据 ${ago(d.okx_at)}更新${d.gn_pending ? ' · <span class="warn">Glassnode 正在逐项拉取(限流),稍候自动补全</span>' : ''}。</div>`;
+    html += `<div class="tablewrap"><table>
+      <tr><th>分组</th><th>指标</th><th>数值</th><th>判断</th><th>对做多</th><th>说明</th><th>来源</th><th>口径</th><th>数据时间</th></tr>
+      ${d.rows.map(rowTr).join('')}
+    </table></div>`;
+    return html;
+  }
+  function rowTr(r) {
+    if (r.status !== 'ok') {
+      return `<tr class="na"><td>${esc(r.group)}</td><td>${esc(r.name)}</td><td colspan="4">暂不可用:${esc(r.reason)}</td>
+        <td>${esc(r.source)}</td><td>${esc(r.scope)}</td><td>-</td></tr>`;
+    }
+    const c = stateColor[r.state];
+    return `<tr><td class="muted">${esc(r.group)}</td><td>${esc(r.name)}</td><td class="num">${esc(r.value_text)}</td>
+      <td><span class="tag" style="background:${c}">${r.state}</span></td>
+      <td class="num">${Math.round(r.bull * 100)}</td>
+      <td class="muted">${esc(r.note)}</td><td>${esc(r.source)}</td><td class="muted">${esc(r.scope)}</td>
+      <td class="muted" style="white-space:nowrap">${fmtData(r)}${r.stale ? ' <span class="warn">已过期</span>' : ''}</td></tr>`;
+  }
+
+  /* ---------- 分组页 ---------- */
+  function renderGroup(d, g) {
+    const t = TABS.find((x) => x.key === g);
+    const rows = d.rows.filter((r) => r.group === g);
+    let html = `<div class="muted sec-note">${t.note}</div><div class="cards">`;
+    html += rows.map(card).join('');
+    html += '</div>';
+    if (g === '周期' && d.cost_line) {
+      html += `<div class="muted" style="margin-top:12px">${esc(d.cost_line.name)} ${d.cost_line.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}:在主页勾选「成本线」即可画到主图,与中枢 ZG/ZD 一起看。</div>`;
+    }
+    return html;
+  }
+  function card(r) {
+    if (r.status !== 'ok') {
+      return `<div class="card na"><h4>${esc(r.name)}<span class="tag" style="background:#30363d">不可用</span></h4>
+        <div class="note muted">${esc(r.reason)}</div>
+        <div class="meta muted"><span>来源 ${esc(r.source)}</span><span>${esc(r.scope)}</span></div></div>`;
+    }
+    const c = stateColor[r.state];
+    return `<div class="card"><h4>${esc(r.name)}<span class="tag" style="background:${c}">${r.state} ${Math.round(r.bull * 100)}</span></h4>
+      <div class="val">${esc(r.value_text)}</div>
+      <div class="note">${esc(r.note)}</div>
+      ${spark(r.series, r.key)}
+      <div class="meta muted"><span>来源 ${esc(r.source)}</span><span>${esc(r.scope)}</span>
+        <span>数据 ${fmtData(r)}${r.stale ? ' <span class="warn">已过期</span>' : ''}</span><span>权重 ${r.weight}</span></div></div>`;
+  }
+  function spark(series, key) {
+    if (!series || series.length < 2) return '';
+    const W = 300, H = 70, P = 4;
+    const vs = series.map((p) => p[1]);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    // 有意义的基准线:净流入/资金费率看 0,SOPR 看 1
+    const base = key === 'netflow' || key === 'funding' ? 0 : key === 'sopr' ? 1 : null;
+    if (base != null) { lo = Math.min(lo, base); hi = Math.max(hi, base); }
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const x = (i) => P + (i / (series.length - 1)) * (W - 2 * P);
+    const y = (v) => P + (1 - (v - lo) / (hi - lo)) * (H - 2 * P);
+    const pts = series.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+    const lx = x(series.length - 1), ly = y(vs[vs.length - 1]);
+    const baseLine = base != null ? `<line x1="${P}" x2="${W - P}" y1="${y(base)}" y2="${y(base)}" stroke="#6e7681" stroke-dasharray="3 3" stroke-width="1"/>` : '';
+    const daily = series.length > 1 && series[1][0] - series[0][0] >= 86400000;
+    const pt = (ms) => (daily ? fmtDay(ms).slice(0, 5) : fmtTime(ms).slice(0, 5));
+    const span = `${pt(series[0][0])} → ${pt(series[series.length - 1][0])}`;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="走势 ${span}">
+      ${baseLine}<polyline points="${pts}" fill="none" stroke="#4c8dff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+      <circle cx="${lx}" cy="${ly}" r="2.5" fill="#7db8ff"/></svg>
+      <div class="muted" style="font-size:11px">${span} · 区间 ${fmtNum(lo, key)} ~ ${fmtNum(hi, key)}</div>`;
+  }
+  function fmtNum(v, key) {
+    if (key === 'funding') return `${(v * 100).toFixed(4)}%`;
+    const a = Math.abs(v);
+    if (a >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    if (a > 0 && a < 0.01) return v.toExponential(1);
+    return v.toFixed(2);
+  }
+
+  /* ---------- 启动 ---------- */
+  setInterval(() => { if ($('ckAuto').checked && !state.loading) load(false); }, 60 * 1000);
+  fetch('/api/instruments').then((r) => r.json()).then((j) => renderCoins(j.instruments))
+    .catch(() => renderCoins(['BTC-USDT-SWAP', 'ETH-USDT-SWAP']));
+  render();
+  load(false);
+})();
+</script>
+</body>
+</html>

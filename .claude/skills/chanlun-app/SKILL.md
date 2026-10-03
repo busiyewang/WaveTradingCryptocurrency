@@ -223,3 +223,39 @@ neutral 才按小级别笔方向)——否则大级别涨、小级别回调时�
 上方一点点时盈亏比被算虚小;③关键位相距<0.25×tol 自动合并(结构位优先保留,
 名称用 ≈ 连接);④_breakout=场景三:小级别放量(≥2×前5均量)K线收盘穿越
 关键位 → res["breakout"] 仅作观察信号展示,明示等大级别收盘确认,绝不给入场。
+
+## 12. 链上资金页(2026-10 新增,/onchain,第1步只读)
+
+- onchain.py:`build(inst, last_price)` → rows(每项 key/group/source/scope/status/bull/weight/
+  state/note/data_time/stale/series 或 status=na+reason)+ score{long,short,*_level,coverage}+cost_line。
+  bull∈[0,1] 为利多度;对做空=100−对做多;过期权重×0.5。阈值在 score_* 函数,权重在 WEIGHTS。
+  档位 LEVELS:≥60顺风/≥40中性/≥20逆风/<20强逆风(第3步规划:只降不升,逆风降一档,强逆风降两档或暂停新开)。
+- Glassnode:key 读 env `GLASSNODE_API_KEY` 或根目录 .env(gitignore);请求头 `X-Api-Key`
+  (代理服务 grassnoodle 的 x-key 在官方无效,且该代理本机连不通)。当前 key 为 advanced 档:
+  **只允许 i=24h**、只返回近约14天(超范围报 outside allowed range)、连发4-5次即429。
+  因此 _GnStore 后台单线程排队、间隔 GN_SPACING=7s、TTL 6h、历史在进程内按 t 合并累积(重启清空)。
+  STH 成本线路径 `market/price_realized_less_155_usd` 仅 BTC,其他币回退 `market/price_realized_usd`;
+  `indicators/sopr_less_155` 需 professional,勿加入。
+- OKX(单所口径):public/funding-rate、rubik open-interest-history(1H)、
+  long-short-account-ratio-contract(1H)、taker-volume-contract(5m),4 并发在 rubik 5次/2s 内;
+  OKX_TTL=300s,失败保留旧值并标已过期。现价可由 oiUsd/oiCcy 推算。
+- server.py:`GET /api/onchain?inst=` 用 _cache 中已有K线的实时价,异常一律 502 不影响主流程;
+  `GET /onchain` → static/onchain.html(标签页 + SVG 小图,自带决策读取 /api/kline 的决策周期)。
+  手册 static/onchain-guide.html。测试 tests/test_onchain.py。
+- **第2步(主图)**:app.js 开关 ckCost/ckFund(localStorage chan_ck_cost/chan_ck_fund,默认关)。
+  成本线:/api/onchain 的 cost_line → overlay levelLine(groupId 'cost',不被 drawOverlays 清除;
+  坐标越界时只贴上/下边缘标签)。资金副图:registerIndicator 'FUND_CN'(pane id fund_pane,90px),
+  calc 读闭包 fund.data 并 as-of 对齐(持仓 oi=oiAt(ts+dur)/oiAt(ts)−1,费率取收盘前最后结算,
+  当前周期用 funding_now 预测值);数据到达后 overrideIndicator 改 calcParams 触发重算,
+  createTooltipDataSource 置空 calcParamsText 隐藏该版本号。线型 styles 给完整对象(踩坑#1)。
+  后端 `GET /api/fundflow?inst=&bar=&since=` → onchain.fundflow:_okx_hist 通用缓存,首页 OKX_TTL 刷新,
+  向前分页(rubik end / funding after)回补到 since,到底标 exhausted;OI_PERIOD 1m→5m、1W→1D;
+  首次 4H 1200 根约 20s(13 页×0.45s 间隔),之后 ~20ms。资金费率历史仅约 3 个月。
+- **第3步(决策过滤,实验)**:onchain.adjust_position(纯函数,线上与回测共用,POSITION_TIERS
+  100/70/50/30,≥40 不变、20-39 降一档、<20 降两档,降到 0→观望;覆盖率<MIN_COVERAGE=0.5 不调整;
+  aggregate 分母不计"不支持"的指标)。apply_to_decision 由 /api/kline?onchain=1 调用,异常原样返回。
+  主页开关 ckOcFilter「链上过滤(实验)」默认关(localStorage chan_ck_ocf)。
+  回测 research/onchain_filter/(README 有结果):55 天 368 笔,过滤只影响 7 笔,提升不明显 →
+  按用户约定退回只展示,**勿默认开启**。附带发现:简化撮合下基础决策亏损(15m 近止损+成本,
+  止损单平均 −1.66R),若要改进优先研究这块。
+

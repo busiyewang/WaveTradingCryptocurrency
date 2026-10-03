@@ -114,6 +114,126 @@
     },
   });
 
+  // 资金副图(OKX 单所):柱=本根K线持仓变化%,实心=增仓/空心=减仓,绿=收涨/红=收跌;
+  // 线=资金费率(万分之,0.01%=1),虚线=过热线(万3=0.03%)。数据由 /api/fundflow 异步填入 fund。
+  const fund = { key: null, data: null, ver: 0, loading: false, err: '' };
+  const BAR_MS = { '1m': 6e4, '5m': 3e5, '15m': 9e5, '1H': 36e5, '4H': 144e5, '1D': 864e5, '1W': 6048e5 };
+  const asOf = (pts, t) => {  // pts 升序 [[ts, v]],返回 ts<=t 的最后一个下标
+    let lo = 0, hi = pts.length - 1, ans = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (pts[m][0] <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
+    return ans;
+  };
+  klinecharts.registerIndicator({
+    name: 'FUND_CN',
+    shortName: 'OKX资金',
+    calcParams: [0],
+    precision: 2,
+    figures: [
+      {
+        key: 'oi', title: '持仓变化%: ', type: 'bar', baseValue: 0,
+        styles: (data) => {
+          const d = data.current.indicatorData || {};
+          const color = d.pd > 0 ? '#2ebd85' : '#f6465d';
+          return { style: d.oi >= 0 ? 'fill' : 'stroke', color, borderColor: color };
+        },
+      },
+      { key: 'fr', title: '费率(万分之): ', type: 'line' },
+      { key: 'hot', title: '过热线: ', type: 'line' },
+    ],
+    // 自定义提示:隐藏用于触发重算的 calcParams,费率按百分比显示,并给出四象限解读
+    createTooltipDataSource: ({ kLineDataList, indicator, crosshair }) => {
+      const n = kLineDataList.length;
+      const i = crosshair && Number.isInteger(crosshair.dataIndex) ? crosshair.dataIndex : n - 1;
+      const d = (indicator.result || [])[i] || {};
+      const up = d.pd > 0;
+      let read = '--', rc = '#8b949e';
+      if (d.oi != null && Math.abs(d.oi) >= 0.05) {
+        if (d.oi > 0) { read = up ? '价↑仓↑ 新多进场' : '价↓仓↑ 新空进场'; rc = up ? '#2ebd85' : '#f6465d'; }
+        else { read = up ? '价↑仓↓ 空头回补' : '价↓仓↓ 多头平仓'; rc = '#d29922'; }
+      } else if (d.oi != null) read = '持仓基本不变';
+      const fr = d.fr != null ? d.fr / 100 : null;  // 万分之 → %
+      const frc = fr == null ? '#8b949e' : fr >= 0.03 ? '#f6465d' : fr < 0 ? '#2ebd85' : '#e3b341';
+      return {
+        name: 'OKX资金', calcParamsText: '',
+        values: [
+          { title: { text: '持仓变化 ', color: '#8b949e' }, value: { text: d.oi == null ? '--' : `${d.oi >= 0 ? '+' : ''}${d.oi.toFixed(2)}%`, color: d.oi == null ? '#8b949e' : (up ? '#2ebd85' : '#f6465d') } },
+          { title: { text: '资金费率 ', color: '#8b949e' }, value: { text: fr == null ? '--' : `${fr.toFixed(4)}%`, color: frc } },
+          { title: { text: '', color: rc }, value: { text: read, color: rc } },
+        ],
+      };
+    },
+    calc: (dataList) => {
+      const F = fund.data;
+      if (!F || fund.key !== `${state.inst}|${state.bar}`) return dataList.map(() => ({}));
+      const dur = BAR_MS[state.bar] || 36e5;
+      const per = BAR_MS[F.oi_period === '1D' ? '1D' : F.oi_period] || dur;
+      const tol = dur + 2 * per;
+      const oiAt = (t) => {
+        const i = asOf(F.oi, t);
+        return i >= 0 && t - F.oi[i][0] <= tol ? F.oi[i][1] : null;
+      };
+      const lastSettle = F.funding.length ? F.funding[F.funding.length - 1][0] : null;
+      return dataList.map((k) => {
+        const out = { pd: k.close >= k.open ? 1 : -1, hot: 3 };
+        const o0 = oiAt(k.timestamp), o1 = oiAt(Math.min(k.timestamp + dur, Date.now()));
+        if (o0 && o1) out.oi = (o1 / o0 - 1) * 100;
+        const close = k.timestamp + dur;
+        if (lastSettle != null && close > lastSettle && F.funding_now) {
+          out.fr = F.funding_now.rate * 1e4;  // 当前结算周期:用预测费率
+        } else {
+          const i = asOf(F.funding, close);
+          if (i >= 0) out.fr = F.funding[i][1] * 1e4;
+        }
+        return out;
+      });
+    },
+  });
+
+  // 全宽水平虚线 + 右侧标签(与多级别页同款),用于 STH 成本线
+  klinecharts.registerOverlay({
+    name: 'levelLine',
+    totalStep: 2,
+    lock: true,
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
+      const c = coordinates[0];
+      if (!c) return [];
+      const d = overlay.extendData || {};
+      const color = d.color || '#a5b4fc';
+      // 横线不在当前价格视野内:只在上/下边缘贴标签提示方向
+      if (c.y < 0 || c.y > bounding.height) {
+        const above = c.y < 0;
+        return [{
+          type: 'text',
+          attrs: { x: 6, y: above ? 4 : bounding.height - 4, text: `${above ? '↑' : '↓'} ${d.text || ''}(在视野${above ? '上方' : '下方'})`, align: 'left', baseline: above ? 'top' : 'bottom' },
+          styles: {
+            color, size: 11, family: 'sans-serif',
+            backgroundColor: 'rgba(11,14,17,0.8)', borderRadius: 2,
+            paddingLeft: 3, paddingRight: 3, paddingTop: 1, paddingBottom: 1,
+          },
+          ignoreEvent: true,
+        }];
+      }
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [{ x: 0, y: c.y }, { x: bounding.width, y: c.y }] },
+          styles: { color, size: 1.2, style: 'dashed', dashedValue: [6, 4] },
+          ignoreEvent: true,
+        },
+        {
+          type: 'text',
+          attrs: { x: 6, y: c.y - 3, text: d.text || '', align: 'left', baseline: 'bottom' },
+          styles: {
+            color, size: 11, family: 'sans-serif',
+            backgroundColor: 'rgba(11,14,17,0.8)', borderRadius: 2,
+            paddingLeft: 3, paddingRight: 3, paddingTop: 1, paddingBottom: 1,
+          },
+          ignoreEvent: true,
+        },
+      ];
+    },
+  });
+
   const chart = klinecharts.init('chart');
   window._chart = chart;  // 调试用
   chart.setStyles({
@@ -206,6 +326,125 @@
   $('refreshBtn').onclick = () => loadData(true);
   ['ckFx', 'ckBi', 'ckXd', 'ckZs', 'ckBc', 'ckDl', 'ckBsp', 'ckTri'].forEach((id) => { $(id).onchange = drawOverlays; });
 
+  /* ---------------- 链上:成本线 / 资金副图(开关状态记在本机) ---------------- */
+  const ls = {
+    get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* 忽略 */ } },
+  };
+  $('ckCost').checked = ls.get('chan_ck_cost') === '1';
+  $('ckFund').checked = ls.get('chan_ck_fund') === '1';
+  $('ckOcFilter').checked = ls.get('chan_ck_ocf') === '1';
+  const cost = { inst: null, line: null, at: 0, loading: false, retry: null };
+
+  function setExtraStatus() {
+    const parts = [];
+    if ($('ckCost').checked) {
+      if (cost.loading && !cost.line) parts.push('成本线加载中…');
+      else if (cost.err) parts.push(`成本线:${cost.err}`);
+    }
+    if ($('ckFund').checked) {
+      if (fund.loading && fund.first) parts.push('资金副图加载中(首次约20秒)…');
+      else if (fund.err) parts.push(`资金副图:${fund.err}`);
+      else if (state.bar === '1m') parts.push('1m 持仓按 5m 快照,每 5 根更新');
+    }
+    $('extraStatus').textContent = parts.join(' · ');
+  }
+
+  function drawCost() {
+    chart.removeOverlay({ groupId: 'cost' });
+    if (!$('ckCost').checked || !cost.line || cost.inst !== state.inst || !state.lastList) return;
+    const L = cost.line;
+    const d = new Date(L.data_time);
+    const day = `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    const live = state.lastList[state.lastList.length - 1].close;
+    chart.createOverlay({
+      groupId: 'cost', lock: true, name: 'levelLine',
+      points: [{ timestamp: state.lastList[state.lastList.length - 1].timestamp, value: L.price }],
+      extendData: {
+        text: `${L.name} ${L.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+          + (live ? ` · 现价${live >= L.price ? '高于' : '低于'}成本 ${Math.abs(live / L.price * 100 - 100).toFixed(1)}%` : '')
+          + ` · ${day}日线${L.stale ? ' 已过期' : ''}`,
+      },
+    });
+  }
+
+  async function loadCost(force) {
+    if (!$('ckCost').checked || cost.loading) return;
+    // 日线数据:同币种 10 分钟内不重复请求
+    if (!force && cost.inst === state.inst && cost.line && Date.now() - cost.at < 6e5) { drawCost(); return; }
+    const inst = state.inst;
+    cost.loading = true; cost.err = ''; setExtraStatus();
+    try {
+      const j = await fetch(`/api/onchain?inst=${encodeURIComponent(inst)}`).then((r) => r.json());
+      if (inst !== state.inst) return;
+      if (j.code !== 0) throw new Error(j.msg || '未知错误');
+      cost.inst = inst; cost.at = Date.now(); cost.line = j.cost_line;
+      if (!j.cost_line) {
+        const row = (j.rows || []).find((r) => r.key === 'cost_line');
+        cost.err = row && row.reason ? row.reason : '暂无数据';
+        // Glassnode 后台限流拉取中:20 秒后再取
+        clearTimeout(cost.retry);
+        if (j.gn_pending) cost.retry = setTimeout(() => loadCost(true), 20000);
+      }
+      drawCost();
+    } catch (e) {
+      cost.err = e.message;
+    } finally {
+      cost.loading = false; setExtraStatus();
+    }
+  }
+
+  function ensureFundPane() {
+    const on = $('ckFund').checked;
+    const has = !!chart.getIndicatorByPaneId('fund_pane', 'FUND_CN');
+    if (on && !has) {
+      chart.createIndicator({
+        name: 'FUND_CN',
+        styles: {
+          // 完整线型对象(只给 color 会导致渲染异常冻结图表)
+          lines: [
+            { style: 'solid', smooth: false, size: 1.2, color: '#e3b341', dashedValue: [2, 2] },
+            { style: 'dashed', smooth: false, size: 1, color: 'rgba(246,70,93,.55)', dashedValue: [4, 3] },
+          ],
+        },
+      }, false, { id: 'fund_pane', height: 90 });
+    } else if (!on && has) {
+      chart.removeIndicator('fund_pane', 'FUND_CN');
+    }
+  }
+
+  async function loadFund() {
+    ensureFundPane();
+    if (!$('ckFund').checked || fund.loading || !state.lastList) return;
+    const key = `${state.inst}|${state.bar}`;
+    const since = state.lastList[0].timestamp;
+    fund.loading = true;
+    fund.first = fund.key !== key || !fund.data;  // 只有首次加载(需分页回补)才提示
+    setExtraStatus();
+    try {
+      const j = await fetch(`/api/fundflow?inst=${encodeURIComponent(state.inst)}&bar=${state.bar}&since=${since}`).then((r) => r.json());
+      if (key !== `${state.inst}|${state.bar}`) return;
+      if (j.code !== 0) throw new Error(j.msg || '未知错误');
+      fund.key = key; fund.data = j;
+      const errs = Object.values(j.errors || {});
+      fund.err = errs.length ? errs.join(';') : '';
+      fund.ver += 1;
+      chart.overrideIndicator({ name: 'FUND_CN', calcParams: [fund.ver] }, 'fund_pane');
+    } catch (e) {
+      fund.err = e.message;
+    } finally {
+      fund.loading = false; fund.first = false;
+      setExtraStatus();
+      // 加载期间切了币种/周期:按新的再取一次
+      if (key !== `${state.inst}|${state.bar}`) loadFund();
+    }
+  }
+
+  function refreshExtras() { loadCost(false); loadFund(); }
+  $('ckCost').onchange = () => { ls.set('chan_ck_cost', $('ckCost').checked ? '1' : '0'); if ($('ckCost').checked) loadCost(false); else { chart.removeOverlay({ groupId: 'cost' }); } setExtraStatus(); };
+  $('ckOcFilter').onchange = () => { ls.set('chan_ck_ocf', $('ckOcFilter').checked ? '1' : '0'); loadData(false); };
+  $('ckFund').onchange = () => { ls.set('chan_ck_fund', $('ckFund').checked ? '1' : '0'); loadFund(); setExtraStatus(); };
+
   /* ---------------- 数据加载 ---------------- */
   async function loadData(force) {
     if (state.loading) return;
@@ -214,7 +453,8 @@
     btn.disabled = true;
     setStatus('加载中…');
     try {
-      const r = await fetch(`/api/kline?inst=${encodeURIComponent(state.inst)}&bar=${state.bar}&force=${force ? 1 : 0}`);
+      const oc = $('ckOcFilter').checked ? '&onchain=1' : '';
+      const r = await fetch(`/api/kline?inst=${encodeURIComponent(state.inst)}&bar=${state.bar}&force=${force ? 1 : 0}${oc}`);
       const j = await r.json();
       if (j.code !== 0) throw new Error(j.msg || '未知错误');
       state.data = j;
@@ -259,6 +499,7 @@
     drawOverlays();
     renderPanel();
     renderDecision();
+    refreshExtras();
   }
 
   /* ---------------- 交易决策 ---------------- */
@@ -278,10 +519,21 @@
 
     if (d.action === 'wait') {
       html += `<span class="blk" style="white-space:normal;max-width:640px">${d.reason}</span>`;
+      if (d.onchain && d.onchain.long != null && !d.onchain.applied) {
+        html += blk('链上环境', `<span class="muted">多 ${d.onchain.long} · 空 ${d.onchain.short}</span>`);
+      }
     } else {
       html += blk('信号', `${d.signal.type} @ ${fmtP(d.signal.price)}(质量 ${d.signal_quality})${d.signal.locked === false ? ' <span class="warn">未锁定·或移动</span>' : ''}`);
       html += blk('指标确认', `${d.confirm_hits}/4:${d.confirms.join('、')}`);
-      html += blk('质量分 q', `<b style="color:${c}">${d.q}</b> → 建议标准仓位的 ${d.position}%`);
+      const oc = d.onchain;
+      const adjTxt = oc && oc.applied && oc.steps ? ` <span class="warn">(链上降档,原 ${oc.position_before}%)</span>` : '';
+      html += blk('质量分 q', `<b style="color:${c}">${d.q}</b> → 建议标准仓位的 ${d.position}%${adjTxt}`);
+      if (oc && oc.applied) {
+        const sc = oc.side_score;
+        const lc = sc == null ? '#8b949e' : sc >= 60 ? '#2ebd85' : sc >= 40 ? '#4c8dff' : sc >= 20 ? '#d29922' : '#f6465d';
+        html += blk(`链上对${d.action === 'long' ? '做多' : '做空'}支持度`,
+          sc == null ? '<span class="muted">不足</span>' : `<b style="color:${lc}">${sc}</b> <span style="color:${lc}">${oc.level || ''}</span> <span class="muted">${oc.coverage || ''}</span>`);
+      }
       html += blk('入场参考', fmtP(d.entry));
       html += blk(d.stop_name, `<span class="down">${fmtP(d.stop)}</span>`);
       if (d.targets.length) {
@@ -467,7 +719,7 @@
         <div style="font-weight:600;color:${zColor}">${zl.conclusion}</div>
         ${zl.evidence.map((e) => `<div class="muted">· ${e}</div>`).join('')}
       </div>`;
-      volHtml += '<div class="muted">仅基于K线量价;CVD/持仓量/链上数据未接入。</div>';
+      volHtml += '<div class="muted">仅基于K线量价;持仓量、资金费率与链上数据见顶部「⛓ 链上资金」页。</div>';
     } else volHtml = '<div class="muted">数据不足。</div>';
     $('colVol').innerHTML = '<h3>量价 · 主力</h3>' + volHtml;
 
