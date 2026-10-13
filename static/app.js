@@ -440,10 +440,75 @@
     }
   }
 
-  function refreshExtras() { loadCost(false); loadFund(); }
+  function refreshExtras() { loadCost(false); loadFund(); if (ai.inst !== state.inst) loadAi(); }
   $('ckCost').onchange = () => { ls.set('chan_ck_cost', $('ckCost').checked ? '1' : '0'); if ($('ckCost').checked) loadCost(false); else { chart.removeOverlay({ groupId: 'cost' }); } setExtraStatus(); };
   $('ckOcFilter').onchange = () => { ls.set('chan_ck_ocf', $('ckOcFilter').checked ? '1' : '0'); loadData(false); };
   $('ckFund').onchange = () => { ls.set('chan_ck_fund', $('ckFund').checked ? '1' : '0'); loadFund(); setExtraStatus(); };
+
+  /* ---------------- AI 复核(DeepSeek,每小时,服务端定时) ---------------- */
+  const ai = { inst: null, timer: null };
+  const esc = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+  async function loadAi() {
+    try {
+      const r = await fetch(`/api/ai_review?inst=${encodeURIComponent(state.inst)}`);
+      const j = await r.json();
+      ai.inst = state.inst;
+      $('ckAi').checked = !!j.watching;
+      renderAi(j);
+    } catch (e) { /* AI 复核失败不影响主流程 */ }
+  }
+
+  function renderAi(j) {
+    const el = $('aiReview');
+    if (!j.watching && !j.latest) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const blk = (lbl, val) => `<span class="blk"><span class="lbl">${lbl}</span>${val}</span>`;
+    const colorMap = { 做多: '#2ebd85', 做空: '#f6465d', 观望: '#8b949e' };
+    let html = '';
+    if (!j.configured) {
+      html += '<span class="blk warn">未配置 DEEPSEEK_API_KEY:在项目根目录 .env 写一行 DEEPSEEK_API_KEY=sk-xxx 后重启服务</span>';
+    }
+    const L = j.latest;
+    const res = L && L.result;
+    if (res) {
+      const c = colorMap[res.verdict] || '#8b949e';
+      el.style.borderLeftColor = c;
+      html += `<span class="act" style="color:${c}">AI:${esc(res.verdict)}<br><span class="muted">右侧${esc(res.right_side)} · 可信 ${esc(res.confidence)}</span></span>`;
+      html += blk(`复核于 ${esc(L.at)} · 价 ${fmtP(L.price)}`, `${esc(res.signal || '—')}${res.agree_with_local === false ? ' <span class="warn">与本地决策不一致</span>' : ''}`);
+      if (res.entry != null || res.stop != null) {
+        const tg = (res.targets || []).map(fmtP).join(' → ');
+        html += blk('入场 / 止损 / 目标', `${fmtP(res.entry)} / <span class="down">${fmtP(res.stop)}</span> / ${tg || '—'}${res.rr != null ? ` · 1:${esc(res.rr)}` : ''}${res.better_entry != null ? ` · 合格入场 ${fmtP(res.better_entry)}` : ''}`);
+      }
+      if (res.levels) html += blk('各级别', ['1W', '1D', '4H', '1H'].map((b) => `<b>${b}</b> ${esc(res.levels[b])}`).join('<br>'));
+      if (res.reasons && res.reasons.length) html += blk('依据', `<ul>${res.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`);
+      const risk = (res.risks || []).map((x) => `<li>${esc(x)}</li>`).join('');
+      if (risk || res.invalidation) html += blk('风险 / 作废条件', `<ul>${risk}${res.invalidation ? `<li class="warn">${esc(res.invalidation)}</li>` : ''}</ul>`);
+      if (res.watch_next) html += blk('下一小时关注', esc(res.watch_next));
+    } else if (L && L.error) {
+      el.style.borderLeftColor = '#d29922';
+      html += blk(`复核失败 ${esc(L.at)}`, `<span class="warn">${esc(L.error)}</span>`);
+    } else {
+      el.style.borderLeftColor = '#6e7681';
+      html += '<span class="blk muted">已开启,等待首次复核结果…</span>';
+    }
+    const hist = (j.history || []).slice(1, 9).map((h) => h.error ? `<span class="warn">${esc(h.at.slice(5))} 失败</span>`
+      : `<span>${esc(h.at.slice(5))} <b style="color:${colorMap[h.verdict] || '#8b949e'}">${esc(h.verdict)}</b>${h.right_side === '已确认' ? '✓' : ''}</span>`).join('');
+    html += blk(`${j.running ? '复核中… ' : ''}${j.watching ? `下次 ${esc((j.next_run || '').slice(11))}` : '已关闭'}`,
+      `<button id="aiRunBtn" ${j.running || !j.configured ? 'disabled' : ''}>立即复核</button>`);
+    if (hist) html += blk('近几次', `<div class="hist">${hist}</div>`);
+    el.innerHTML = html;
+    const btn = $('aiRunBtn');
+    if (btn) btn.onclick = async () => { btn.disabled = true; await fetch(`/api/ai_review/run?inst=${encodeURIComponent(state.inst)}`, { method: 'POST' }); setTimeout(loadAi, 1500); };
+  }
+
+  $('ckAi').onchange = async () => {
+    const on = $('ckAi').checked ? 1 : 0;
+    await fetch(`/api/ai_review/watch?inst=${encodeURIComponent(state.inst)}&on=${on}`, { method: 'POST' });
+    setTimeout(loadAi, 1000);
+  };
+  // 结果由服务端定时产生,页面每分钟拉一次最新结论
+  ai.timer = setInterval(loadAi, 60000);
 
   /* ---------------- 数据加载 ---------------- */
   async function loadData(force) {

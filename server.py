@@ -11,6 +11,7 @@ import time
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 
+import ai_review
 import chan
 import decision
 import indicators
@@ -204,6 +205,33 @@ def onchain_page():
     return send_from_directory("static", "onchain.html")
 
 
+@app.get("/api/ai_review")
+def api_ai_review():
+    """AI 复核状态:是否关注、最新结论与历史。"""
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    return jsonify(ai_review.reviewer.status(inst))
+
+
+@app.post("/api/ai_review/watch")
+def api_ai_review_watch():
+    """开关:把币种加入/移出每小时复核列表;开启时立即跑一次。"""
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    on = request.args.get("on", "1") == "1"
+    ai_review.reviewer.set_watch(inst, on)
+    if on and ai_review.configured():
+        ai_review.reviewer.run_async(inst)
+    return jsonify(ai_review.reviewer.status(inst))
+
+
+@app.post("/api/ai_review/run")
+def api_ai_review_run():
+    inst = request.args.get("inst", "ETH-USDT-SWAP").upper().strip()
+    if not ai_review.configured():
+        return jsonify({"code": 1, "msg": "未配置 DEEPSEEK_API_KEY(写入项目根目录 .env)"}), 400
+    ai_review.reviewer.run_async(inst)
+    return jsonify(ai_review.reviewer.status(inst))
+
+
 @app.get("/api/instruments")
 def api_instruments():
     return jsonify({"code": 0, "instruments": COMMON_INSTRUMENTS})
@@ -216,4 +244,5 @@ def index():
 
 if __name__ == "__main__":
     print("缠论K线分析工具: http://127.0.0.1:8420")
+    ai_review.reviewer.start(_get_data)  # 每小时 AI 复核(关注列表为空时空转)
     app.run(host="127.0.0.1", port=8420, debug=False)

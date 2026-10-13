@@ -259,3 +259,14 @@ neutral 才按小级别笔方向)——否则大级别涨、小级别回调时�
   按用户约定退回只展示,**勿默认开启**。附带发现:简化撮合下基础决策亏损(15m 近止损+成本,
   止损单平均 −1.66R),若要改进优先研究这块。
 
+
+## 13. AI 复核(2026-10 新增,DeepSeek)
+
+- ai_review.py:`build_snapshot(inst, get_data)` 取 1H/4H/1D/1W(force 刷新)已收盘K线紧凑表
+  (BARS_PER_LEVEL 72/60/60/52,约 4 万字符)+ 笔/中枢/背驰/背离/买卖点尾部 + 各级别 decide 结果;
+  `call_deepseek` 走 OpenAI 兼容接口(JSON 模式,reasoner 除外),key/模型读 env 或 .env
+  `DEEPSEEK_API_KEY`/`DEEPSEEK_MODEL`。Reviewer 单例后台线程:整点+RUN_DELAY=90s 串行跑关注列表;
+  watch.json 与 <inst>.jsonl 存 var/ai_review/。server.py 仅在 `__main__` 里 start(_get_data)。
+- 路由:GET /api/ai_review?inst=、POST /api/ai_review/watch?inst=&on=1|0(开启即跑一次)、
+  POST /api/ai_review/run?inst=。前端开关 ckAi(状态以服务端 watching 为准,不存 localStorage),
+  #aiReview 栏每 60s 轮询。AI 结论只展示,不进入 decision。

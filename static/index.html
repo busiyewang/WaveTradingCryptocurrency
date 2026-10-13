@@ -64,7 +64,18 @@
   #decision .act { font-size: 17px; font-weight: 700; flex: none; }
   #decision .blk { flex: none; line-height: 1.35; }
   #decision .blk .lbl { color: #8b949e; font-size: 11px; display: block; }
-  #decision .warn { color: #d29922; }
+  #decision .warn, #aiReview .warn { color: #d29922; }
+  #aiReview {
+    flex: none; display: flex; align-items: flex-start; gap: 16px;
+    padding: 6px 14px; border-top: 1px solid #1e2329;
+    border-left: 4px solid #6e7681; background: #0d1116;
+    overflow-x: auto; font-size: 12px;
+  }
+  #aiReview .act { font-size: 15px; font-weight: 700; flex: none; white-space: nowrap; }
+  #aiReview .blk { flex: none; line-height: 1.4; max-width: 420px; }
+  #aiReview .blk .lbl { color: #8b949e; font-size: 11px; display: block; }
+  #aiReview ul { margin: 0; padding-left: 16px; }
+  #aiReview .hist span { display: inline-block; margin-right: 6px; white-space: nowrap; }
   #modalMask {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
     z-index: 50; align-items: center; justify-content: center;
@@ -117,11 +128,14 @@
       <label class="chk" title="Glassnode 短期持有者成本线(BTC);其他币为全体实现价格。日线数据"><input type="checkbox" id="ckCost"> 成本线</label>
       <label class="chk" title="OKX 单所:柱=持仓变化%(实心增仓/空心减仓,绿收涨/红收跌);黄线=资金费率(万分之),红虚线=过热线万3"><input type="checkbox" id="ckFund"> 资金副图</label>
       <label class="chk" title="实验功能,默认关闭。链上支持度只降不升:20-39 降一档、<20 降两档(降到0即观望);≥40 不变,≥60 也不加仓。2026-10 回测(55天/368笔)提升不明显,见 research/onchain_filter/README.md"><input type="checkbox" id="ckOcFilter"> 链上过滤(实验)</label>
+      <span class="sep"></span>
+      <label class="chk" title="每个整点后约1.5分钟,把 1H/4H/1D/1W 已收盘K线+缠论结构快照发给 DeepSeek,复核是否右侧入场。需在 .env 配置 DEEPSEEK_API_KEY;关注列表存服务端,关掉网页也照常运行"><input type="checkbox" id="ckAi"> AI复核(每小时)</label>
       <span id="extraStatus" class="muted"></span>
     </div>
   </div>
   <div id="chart"></div>
   <div id="decision"><span class="muted">交易决策加载中…</span></div>
+  <div id="aiReview" style="display:none"></div>
   <div id="panel">
     <div class="col" id="colStruct"><h3>结构状态</h3><div class="muted">加载中…</div></div>
     <div class="col" id="colVol"><h3>量价 · 主力</h3><div class="muted">加载中…</div></div>
